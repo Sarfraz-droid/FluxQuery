@@ -1,0 +1,9 @@
+---
+description: NPM Install Issues
+globs:
+alwaysApply: true
+---
+
+If you get a npm nodejs installation issue just use nvm. do `nvm use 20` to fix this.
+
+the project uses pnpm to install and dev

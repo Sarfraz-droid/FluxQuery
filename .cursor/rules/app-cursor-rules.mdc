@@ -1,0 +1,118 @@
+---
+description: Tauri Reactjs SQL Client
+globs:
+alwaysApply: false
+---
+
+Got it — here’s a ready‑to‑paste Cursor Rules prompt tailored to your SQL Client. It gives Cursor clear goals, constraints, and acceptance criteria so it can build the app end‑to‑end.
+
+⸻
+
+Cursor Rules — Minimal SQL Client (Editor, Runner, History, Settings, Visualizer)
+
+Role
+
+You are an expert full‑stack engineer building a minimalistic, high‑performance SQL Client. Prioritize clean architecture, type safety, DX, and UX polish. Default to pragmatic, production‑ready choices.
+
+Tech Stack (suggested; adjust if repo dictates)
+	•	Frontend: React + TypeScript, Vite, Tailwind (minimal), Zustand or Redux Toolkit for state, React Router.
+    -   Shadcn UI for a simpler and clean UI
+	•	Table: TanStack Table.
+	•	Graph: React Flow (or Cytoscape) for schema graph.
+	•	Backend: Node.js + TypeScript, Fastify (or Express) with zod validation.
+	•	DB Drivers (server): pg, mysql2, better‑sqlite3, mssql. Use a simple driver adapter layer.
+	•	IPC/Packaging (optional desktop): Electron or Tauri. If web app only, store connections safely and never expose raw drivers to client.
+	•	Build/Test: ESLint, Prettier, Vitest/Jest, Playwright for e2e.
+
+High‑Level Features
+	1.	Code Editor & Runner
+	•	SQL editor with basic features (syntax highlight, indent, autocomplete later).
+	•	Run button, keyboard shortcut (Ctrl/Cmd+Enter).
+	•	Query cancellation (abort token).
+	•	Execution time + row count + error surface.
+	•	Result table: virtualized rows, column auto‑sizing, sticky header, copy cell/row, CSV export.
+	•	Server‑side pagination (limit/offset or cursor), default 50 rows/page. Never fetch entire result set at once.
+	2.	Left Side Panel — History
+	•	Chronological list of executed queries with: timestamp, db name, duration, status.
+	•	Search/filter (text, db, date).
+	•	Click to restore to editor; pin/star favorites.
+	•	Persist locally (SQLite file for desktop; IndexedDB/localStorage for web). Avoid sensitive creds in history.
+	3.	Settings — Connections
+	•	Add/edit/delete connections. Fields per driver:
+	•	Postgres/MySQL/MSSQL: host, port, db, user, password, SSL toggle.
+	•	SQLite: file path picker.
+	•	Test Connection button with clear feedback.
+	•	Choose Active Database (must be selected before run).
+	•	Secure storage:
+	•	Desktop: OS keychain or encrypted local file.
+	•	Web: never store raw passwords unless user opts‑in; if stored, encrypt with WebCrypto.
+	•	Connection errors: actionable messages.
+	4.	Visualizer — Schema Graph
+	•	Graph nodes = tables; edges = foreign keys.
+	•	Sidebar lists schemas/tables; toggle visibility.
+	•	Node shows table name + column badges (PK, FK, type).
+	•	Click node → panel with columns, indexes, sample rows (limit 20).
+	•	Pan/zoom, fit‑view, mini‑map, export PNG/SVG.
+	5.	Result Table Performance
+	•	Virtualized rows & columns (if many).
+	•	Paginated server‑side with debounced page/size changes.
+	•	Stream/Chunk support where feasible; otherwise show progressive loading skeletons.
+	•	Download full results via background task (with explicit user action).
+
+Architecture Constraints
+	•	Do not connect to databases from the browser directly. All DB traffic goes through the backend.
+	•	Sanitize logging: never log credentials or full result sets.
+	•	Validate all inputs (zod) and enforce limits (max pageSize, max execution time, max payload size).
+	•	Query guardrails: configurable timeout; cancel on tab close.
+
+API Endpoints (example)
+	•	POST /connections/test
+	•	POST /connections (create/update), GET /connections, DELETE /connections/:id
+	•	POST /query/run  → body: { connectionId, sql, page, pageSize }
+	•	POST /query/cancel → body: { jobId }
+	•	GET /schema/:connectionId → schemas, tables, fks aggregated for visualizer
+	•	Use SSE or WS channel for long‑running job status (optional).
+
+UI/UX Requirements
+	•	Layout: Left panel (History), Center (Editor + Results tabs), Right panel collapsible (Context/Details).
+	•	States: empty, loading, error, partial results.
+	•	Keyboard: run (Ctrl/Cmd+Enter), focus editor (Esc), next/prev page (Alt+←/→).
+	•	Accessible: focus rings, semantic roles, prefers‑reduced‑motion.
+	•	Themes: mimilal dark theme.
+	•	Copy feedback toasts; non‑blocking errors.
+
+Pagination & Performance Details
+	•	Default pageSize = 50, max = 1000 (configurable).
+	•	Backend applies LIMIT/OFFSET or driver‑specific keyset pagination when possible.
+	•	Return totalRows when cheap; else provide “estimate” and display “~”.
+	•	Virtualize even within a page if rows > viewport.
+	•	Stream CSV export using COPY/server cursors (pg) where available.
+
+Security & Safety
+	•	Never execute multiple statements if driver disallows; optional setting to enable, off by default.
+	•	Parameter binding support for safe execution (if user supplies params).
+	•	SSL options; certificate validation toggles (with warnings).
+	•	Redact secrets in UI screenshots, logs, and exports.
+
+Telemetry (optional)
+	•	Local, privacy‑respecting analytics: counts of runs, avg duration. No query text unless user opts in.
+
+Deliverables
+	•	Implement core features with clean components:
+	•	EditorPane, ResultTable, Paginator, HistoryPanel, SettingsConnections, VisualizerGraph.
+	•	Include sample adapters for Postgres + SQLite; stubs for MySQL/MSSQL.
+	•	Seed tests: unit (adapters), integration (query run), e2e (run query, paginate, visualize).
+	•	README with setup, env vars, and safety notes.
+
+Acceptance Criteria
+	•	Can add a connection, test it, set as active, and run a query.
+	•	Results render in a virtualized, paginated table; pagination controls update without jank.
+	•	Long query can be canceled; UI shows canceled state.
+	•	History captures each run and can restore to editor.
+	•	Visualizer displays tables and relationships with pan/zoom and node details.
+	•	Works on macOS/Windows/Linux (desktop) or modern browsers (web).
+
+Nice‑to‑Have (time permitting)
+	•	Basic SQL autocomplete from schema cache.
+	•	Parameter panel: detect $1, :name, ? placeholders and prompt for values.
+	•	Saved tabs and multiple query tabs.

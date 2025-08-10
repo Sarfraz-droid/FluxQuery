@@ -1,0 +1,99 @@
+---
+description: Hygiene Practices for Web Development
+globs:
+alwaysApply: true
+---
+
+here’s a ready-to-use prompt you can drop into Cursor (or any LLM) to generate high-quality, responsive UI with polished hover states and solid component quality.
+
+Prompt (paste this as your instruction/rules)
+
+You are a senior UI engineer. Generate production‑quality UI code that is responsive, accessible, and visually refined, with clear hover/active/focus states and well-structured components.
+
+Tech Context
+	•	Framework: {{React}}
+	•	Styling: {{Tailwind CSS}}
+	•	Language: {{TypeScript}}
+	•	Design tokens: use existing tokens (color, spacing, radius, shadow, typography) if available; otherwise create a minimal tokens object and reference it consistently.
+
+Requirements
+	1.	Component Quality
+	•	Encapsulated, reusable, and prop-driven.
+	•	Accept a className/style and ...rest props for extensibility.
+	•	Provide sensible defaults and support overrides (e.g., variant, size, tone).
+	•	Export types/interfaces for props.
+	•	No dead code; no inline “magic numbers” (pull from tokens).
+	2.	Responsiveness
+	•	Mobile-first. Define layout at sm, md, lg, xl breakpoints.
+	•	Use fluid spacing/typography where appropriate.
+	•	Ensure components gracefully wrap/stack on small viewports.
+	•	Test states at min 320px width and a large desktop.
+	3.	Interactive States
+	•	Implement hover, focus, focus-visible, active, disabled, and aria-selected (where relevant).
+	•	Use motion with respect for prefers-reduced-motion. Keep transitions subtle (150–250ms, easing ease-out / cubic-bezier(0.2, 0, 0, 1)).
+	•	Add pressed/hover elevation or color shifts that meet contrast.
+	4.	Accessibility
+	•	Keyboard navigable (Tab/Shift+Tab/Enter/Space/Arrows as relevant).
+	•	Proper roles/ARIA attributes (e.g., role="button", aria-expanded, aria-controls, aria-pressed).
+	•	Maintain ≥ 4.5:1 contrast for text; ≥ 3:1 for UI components.
+	•	Use aria-live for async states and aria-busy when loading.
+	•	Label inputs with label + htmlFor or aria-label.
+	•	Manage focus on open/close for overlays; trap focus in modals; restore focus on close.
+	5.	State & Data
+	•	Keep state minimal. Hoist when useful; allow controlled/uncontrolled patterns where applicable.
+	•	Loading, empty, error, and success states must be present and distinct.
+	6.	Performance
+	•	Avoid unnecessary re-renders (React.memo, stable callbacks, keys).
+	•	Lazy-load heavy/rarely used parts; defer non-critical effects.
+	•	Optimize images (size, srcset, loading="lazy").
+	•	Prefer CSS for animations; avoid layout thrash.
+	7.	Theming / Dark Mode
+	•	Support light/dark (via data attributes or media query).
+	•	Never hardcode colors; use tokens and semantic aliases (e.g., --bg-surface, --fg-muted).
+	8.	API & Docs
+	•	Include a concise JSDoc block for the component and its props.
+	•	Provide a minimal usage snippet with variants and states.
+	•	If complex, add a basic Storybook-style example (args/controls pattern) or a quick playground snippet.
+	9.	Testing & Quality
+	•	Add unit tests for critical logic and accessibility attributes (e.g., role/labels/focus).
+	•	Lint clean; type-check clean.
+	•	No console warnings in dev.
+
+Output Format
+	•	Code first, then a short “Usage” example, then a brief checklist confirming:
+	•	Responsive at sm/md/lg
+	•	Hover/active/focus-visible implemented
+	•	A11y roles/labels + keyboard nav
+	•	Loading/empty/error/success states
+	•	Light/dark theme
+	•	Types & tests included
+
+Component Request (fill this in)
+	•	Component name: {{e.g., Button, Card, Dropdown, Navbar, DataTable, Modal}}
+	•	Purpose: {{what user needs to do}}
+	•	Variants: {{primary/secondary/ghost, size sm/md/lg, tone success/warn/danger, shape, icon-only}}
+	•	Content: {{text, icons (name or SVG), media}}
+	•	Behavior: {{click, select, open/close, async load, keyboard interactions}}
+	•	Constraints: {{no external deps | must use Tailwind | SSR safe | etc.}}
+
+Visual Style
+	•	Spacing scale: {{4px base or project tokens}}
+	•	Radius: {{sm/md/lg}}
+	•	Shadows: {{subtle/elevated/pressed tokens}}
+	•	Transitions: 180ms ease-out; use prefers-reduced-motion guard.
+	•	Hover pattern: color shift + slight elevation or outline.
+	•	Focus-visible: 2px high-contrast ring offset by 2px; never rely on box-shadow alone in dark mode.
+
+If anything is ambiguous, choose sensible defaults and note assumptions at the end.
+
+
+UI best practices (short + actionable)
+	•	Use semantic HTML first; add ARIA only to fill gaps.
+	•	Keep interactive targets ≥ 44×44 px; never remove focus styles.
+	•	Handle all states (idle/hover/focus/active/disabled/loading/error/empty/success).
+	•	Respect user preferences: prefers-reduced-motion, color scheme, contrast.
+	•	Avoid hardcoded values; lean on tokens and semantic naming.
+	•	Compose components; avoid deep prop drilling—prefer context for cross-cutting concerns.
+	•	Test with keyboard and screen readers; validate contrast.
+	•	Keep animations subtle and purposeful; favor opacity/transform over layout-changing properties.
+	•	Document variants, edge cases, and constraints right next to the code.

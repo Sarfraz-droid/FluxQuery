@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+}
+
+.app-container {
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: 56px 1fr;
+  grid-template-areas:
+    "topbar"
+    "content";
+  height: 100%;
+}
+
+.topbar { grid-area: topbar; }
+.content { grid-area: content; min-height: 0; }
+
+.panel {
+  border-color: rgb(31 41 55 / 1);
+}
+
+/* App background: subtle radial gradient in monochrome */
+body, #root {
+  background:
+    radial-gradient(1200px 600px at 100% -10%, rgba(255,255,255,0.04), transparent 60%),
+    radial-gradient(1000px 500px at -10% 110%, rgba(255,255,255,0.03), transparent 60%),
+    #000;
+}
+
+/* Resize handles */
+.resize-handle-x {
+  width: 4px;
+  cursor: col-resize;
+  transition: background-color 150ms ease;
+}
+.resize-handle-y {
+  height: 4px;
+  cursor: row-resize;
+  transition: background-color 150ms ease;
+}
+.resize-handle-x:hover, .resize-handle-y:hover {
+  background-color: rgb(55 65 81 / 0.8);
+}
+
+/* Hygiene: ensure interactive elements show pointer cursor */
+button, [role="button"], a[href], input[type="checkbox"], input[type="radio"] {
+  cursor: pointer;
+}
+button:disabled, [role="button"][aria-disabled="true"], a[aria-disabled="true"] {
+  cursor: not-allowed;
+}
