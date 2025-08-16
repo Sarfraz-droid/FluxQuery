@@ -1,7 +1,7 @@
 ---
 description: Hygiene Practices for Web Development
 globs:
-alwaysApply: true
+alwaysApply: false
 ---
 
 here’s a ready-to-use prompt you can drop into Cursor (or any LLM) to generate high-quality, responsive UI with polished hover states and solid component quality.

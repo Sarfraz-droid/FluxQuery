@@ -8,8 +8,10 @@ import RightPanel from "./components/RightPanel";
 import VisualizerStub from "./components/VisualizerStub";
 import DbDetails from "./components/DbDetails";
 import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelHandle } from "react-resizable-panels";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
+import { useAppStore } from "./store";
 import "./App.css";
+import { useWebSocket } from "./hooks/useWebSocket";
 
 function EditorAndResults() {
   return (
@@ -85,6 +87,12 @@ function Layout() {
 }
 
 export default function App() {
+  const initWebSocket = useAppStore((s) => s.initWebSocket);
+  useWebSocket();
+  
+  useEffect(() => {
+    initWebSocket();
+  }, [initWebSocket]);
   return (
     <Router>
       <Layout />

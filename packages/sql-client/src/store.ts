@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import type { Connection, QueryResult, QueryRun, DbSchemaSummary } from "./types";
 import { invoke } from "@tauri-apps/api/core";
+import { WEBSOCKET_EVENTS } from "shared";
 
 async function runQuerySqlite(params: { connectionId: string; sql: string; page: number; pageSize: number; signal?: AbortSignal; }): Promise<QueryResult> {
   // Abort handling is client-side only. If aborted, throw like fetch does.
@@ -26,6 +27,8 @@ type StoreState = {
   runningJobId: string | null;
   result: QueryResult | null;
   lastRunId: string | null;
+  wsStatus: "disconnected" | "connecting" | "connected";
+  deviceId: string;
   setEditorSql: (sql: string) => void;
   refreshSchema: () => Promise<void>;
   setPage: (p: number) => void;
@@ -35,10 +38,13 @@ type StoreState = {
   setActiveConnection: (id: string | undefined) => void;
   runQuery: (opts?: { silent?: boolean }) => Promise<void>;
   cancelQuery: () => void;
+  initWebSocket: () => void;
+  sendMessage: (message: string) => void;
 };
 
 export const useAppStore = create<StoreState>()(persist((set, get) => {
   let abortController: AbortController | undefined;
+  let websocket: WebSocket | null = null;
   return {
     connections: [
       { id: "demo-pg", name: "Demo Postgres", driver: "postgres", host: "localhost", port: 5432, database: "postgres", user: "postgres" },
@@ -53,7 +59,43 @@ export const useAppStore = create<StoreState>()(persist((set, get) => {
     runningJobId: null,
     result: null,
     lastRunId: null,
+    wsStatus: "disconnected",
+    deviceId: crypto.randomUUID(),
     setEditorSql: (sql) => set({ editorSql: sql }),
+    initWebSocket: () => {
+      const { wsStatus, deviceId } = get();
+      if (wsStatus === "connected" || wsStatus === "connecting") return;
+      set({ wsStatus: "connecting" });
+      try {
+        const wsUrl = `ws://localhost:8081/?deviceId=${encodeURIComponent(deviceId)}`;
+        console.log("Connecting to WebSocket at:", wsUrl);
+        websocket = new WebSocket(wsUrl);
+        websocket.onopen = () => {
+          set({ wsStatus: "connected" });
+          window.dispatchEvent(new CustomEvent(WEBSOCKET_EVENTS.OPEN));
+        };
+        websocket.onmessage = (event: MessageEvent) => {
+          // For now, just log. Wire to state as needed later.
+          console.debug("WS message:", event.data);
+          window.dispatchEvent(new CustomEvent(WEBSOCKET_EVENTS.MESSAGE, { detail: event.data }));
+        };
+        websocket.onclose = () => {
+          websocket = null;
+          set({ wsStatus: "disconnected" });
+          window.dispatchEvent(new CustomEvent(WEBSOCKET_EVENTS.CLOSE));
+        };
+        websocket.onerror = () => {
+          // Error will likely be followed by close
+          window.dispatchEvent(new CustomEvent(WEBSOCKET_EVENTS.ERROR));
+        };
+      } catch (_e) {
+        set({ wsStatus: "disconnected" });
+      }
+    },
+    sendMessage: (message: any) => {
+      if (!websocket) return;
+      websocket.send(JSON.stringify(message));
+    },
       refreshSchema: async () => {
         const { activeConnectionId, connections } = get();
         if (!activeConnectionId) {
@@ -92,7 +134,7 @@ export const useAppStore = create<StoreState>()(persist((set, get) => {
     cancelQuery: () => {
       abortController?.abort();
     },
-    runQuery: async (opts) => {
+    runQuery: async (opts) => { 
       const silent = opts?.silent ?? false;
       const { editorSql, page, pageSize, activeConnectionId, connections } = get();
       if (!activeConnectionId) {
@@ -119,7 +161,7 @@ export const useAppStore = create<StoreState>()(persist((set, get) => {
             ],
         lastRunId: silent ? st.lastRunId : runId,
       }));
-      try {
+      try { 
         const active = connections.find((c) => c.id === activeConnectionId);
         if (!active) throw new Error("Active connection not found");
         let result: QueryResult;
@@ -183,6 +225,8 @@ export const useAppStore = create<StoreState>()(persist((set, get) => {
   partialize: (state) => ({
     connections: state.connections,
     activeConnectionId: state.activeConnectionId,
+    editorSql: state.editorSql,
+    deviceId: state.deviceId,
   }),
 }));
 

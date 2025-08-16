@@ -1,0 +1,98 @@
+---
+description: It is helpful for backend tasks and backend HTTP
+alwaysApply: false
+---
+You are building a Bun + TypeScript backend using a strict MVC architecture. Do NOT assume or require any specific file or folder layout; choose sensible structure yourself. Follow this MVC contract exactly.
+
+## MVC roles (authoritative contract)
+
+### Models (M)
+- Purpose: Represent domain concepts and invariants.
+- Include: 
+  - Domain types/interfaces and value objects.
+  - Validation schemas for domain data (e.g., Zod) *separate from transport envelopes*.
+  - Repository interfaces (ports) and simple mappers between persistence records and domain types.
+- Allowed logic:
+  - Pure domain invariants and helpers (e.g., constructing a Message with normalized text).
+  - Domain-specific error types (e.g., `DomainError(code, message)`).
+- Forbidden:
+  - Transport concerns (HTTP, acks).
+  - Business orchestration, rate limiting, auth, or logging side effects.
+  - Talking directly to databases from controllers (only via repository interfaces).
+
+### Views (V)
+- Purpose: Present data to the client over WS as serialized messages.
+- Include:
+  - Message/envelope formatters (e.g., `{ id, type, v, ts, data }`).
+  - Outbound DTO shaping (mapping domain → client-facing payloads).
+  - Versioning and deprecation handling for outbound payloads.
+- Allowed logic:
+  - Pure serialization/formatting, redaction, localization/units.
+- Forbidden:
+  - Business decisions, persistence, authorization checks.
+  - Calling repositories or services.
+
+### Controllers (C)
+- Purpose: Translate inbound socket events into service calls and return structured responses.
+- Responsibilities (all mandatory):
+  - Parse and validate **transport-level** envelopes and **payloads** (Zod).
+  - Authenticate on connect/first message; authorize per-action.
+  - Apply rate limiting / anti-spam (transport level).
+  - Call exactly one service method per action and map results to **Views**.
+  - Return acks/errors with stable error codes; never leak stack traces.
+  - Manage connection/session context (user, rooms, correlation IDs).
+- Forbidden:
+  - Business rules and persistence access.
+  - Cross-service orchestration beyond delegating to a service.
+  - Embedding repository calls or SQL.
+
+## Services (business layer)
+- Purpose: Contain business rules and orchestration.
+- Responsibilities:
+  - Implement use cases (e.g., sendMessage, editMessage, joinRoom).
+  - Enforce domain invariants not captured by types (limits, quotas, state transitions).
+  - Coordinate repositories and other services; define transaction/idempotency boundaries.
+  - Return domain objects or service DTOs; throw domain errors with codes.
+- Forbidden:
+  - Transport-aware code.
+  - Reading env vars directly for auth/secrets (pass via config/DI).
+  - Accessing controller/session objects.
+
+## Repositories (persistence ports)
+- Purpose: Abstract data access behind interfaces.
+- Responsibilities:
+  - CRUD for domain aggregates, efficient queries, pagination.
+  - No business logic; return domain types, not raw records when feasible.
+- Forbidden:
+  - Transport logic; emitting events to clients.
+  - Authorization (beyond tenant scoping provided by inputs).
+
+## Cross-cutting rules
+- Dependency direction:
+  - Controllers → Services → Repositories.
+  - Views depend only on domain/service DTOs.
+  - Models are referenced by Services, Repositories, and Views. No circular deps.
+- Validation:
+  - Transport validation (envelopes/payloads) in Controllers.
+  - Domain validation (invariants) in Models/Services.
+- Errors:
+  - Use typed errors with stable `code` strings.
+  - Controllers map any error to a structured ack `{ type: "ack", ref, ok: false, error: { code, message, details? } }`.
+- Security:
+  - AuthN at connect/handshake; Controllers enforce AuthZ per action.
+  - Services additionally enforce domain permissions (e.g., room membership).
+- Events & naming:
+  - Inbound `type`: `"namespace:action"` (e.g., `chat:send`).
+  - Outbound events are Views (e.g., `chat:message`) or acks.
+  - Version all envelopes with `v`, and maintain backward-compatible changes.
+- Performance & resilience:
+  - Apply backpressure checks before sending; drop or buffer within limits with clear errors.
+  - Heartbeats/idle timeouts handled at controller/connection layer, not in services.
+
+## Delivery expectations
+- When generating code:
+  - Keep controllers thin and deterministic; no business branching.
+  - Keep services cohesive; one use case per method; explicit inputs/outputs.
+  - Keep repositories interface-first; implementation can be in-memory or DB-backed.
+  - Views centralize envelope shaping and payload versioning.
+- Do not introduce fixed file/folder names; create a sensible layout that satisfies the above contracts.

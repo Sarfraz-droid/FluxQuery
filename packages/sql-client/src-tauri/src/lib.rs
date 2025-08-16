@@ -271,6 +271,121 @@ fn run_sqlite_query(
 }
 
 #[tauri::command]
+fn sqlite_table_summary(state: tauri::State<AppState>, connection_id: String, table_name: String) -> Result<DbSchemaSummary, String> {
+    let file_path = {
+        let guard = state.sqlite_files.lock().map_err(|_| "state poisoned".to_string())?;
+        guard.get(&connection_id).cloned().ok_or_else(|| "No SQLite file registered for this connection".to_string())?
+    };
+    let conn = Connection::open_with_flags(file_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|e| format!("Failed to open DB: {}", e))?;
+
+    // tables list
+    let mut table_stmt = conn
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+        .map_err(|e| format!("Prepare tables error: {}", e))?;
+    let table_names_iter = table_stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .iter().filter(|row| row == &table_name)
+        .map_err(|e| format!("Tables query error: {}", e))?;
+    let mut tables: Vec<TableInfo> = Vec::new();
+    let mut foreign_keys: Vec<ForeignKeyEdge> = Vec::new();
+    for t in table_names_iter {
+        let table_name = t.map_err(|e| format!("Error reading table name: {}", e))?;
+        // columns
+        let mut col_stmt = conn
+            .prepare(&format!("PRAGMA table_info('{}')", table_name.replace("'", "''")))
+            .map_err(|e| format!("Prepare table_info error: {}", e))?;
+        let cols_iter = col_stmt
+            .query_map([], |row| {
+                let name: String = row.get(1)?;
+                let data_type: Option<String> = row.get::<_, Option<String>>(2)?;
+                let not_null: i64 = row.get(3)?;
+                let pk: i64 = row.get(5)?;
+                Ok(TableColumn { name, data_type, not_null: not_null != 0, pk: pk != 0 })
+            })
+            .map_err(|e| format!("table_info query error: {}", e))?;
+        let mut cols: Vec<TableColumn> = Vec::new();
+        let mut pk_cols: Vec<String> = Vec::new();
+        for c in cols_iter {
+            let col = c.map_err(|e| format!("column row error: {}", e))?;
+            if col.pk { pk_cols.push(col.name.clone()); }
+            cols.push(col);
+        }
+        let mut keys: Vec<TableKey> = Vec::new();
+        if !pk_cols.is_empty() {
+            keys.push(TableKey { key_type: "PRIMARY_KEY".into(), name: None, columns: pk_cols.clone(), ref_table: None, ref_columns: None, unique: None });
+        }
+
+        // foreign keys per table; also accumulate global edges
+        let pragma = format!("PRAGMA foreign_key_list('{}')", table_name.replace("'", "''"));
+        let mut fk_stmt = conn
+            .prepare(&pragma)
+            .map_err(|e| format!("Prepare foreign_key_list error: {}", e))?;
+        let mut groups: HashMap<i64, (String, Vec<String>, Vec<String>)> = HashMap::new();
+        let fk_iter = fk_stmt
+            .query_map([], |row| {
+                // columns: id, seq, table, from, to, on_update, on_delete, match
+                let id: i64 = row.get(0)?;
+                let ref_table: String = row.get(2)?;
+                let from_col: String = row.get(3)?;
+                let to_col: String = row.get(4)?;
+                Ok((id, ref_table, from_col, to_col))
+            })
+            .map_err(|e| format!("foreign_key_list query error: {}", e))?;
+        for r in fk_iter {
+            let (id, ref_table, from_col, to_col) = r.map_err(|e| format!("fk row error: {}", e))?;
+            let entry = groups.entry(id).or_insert_with(|| (ref_table, Vec::new(), Vec::new()));
+            entry.1.push(from_col);
+            entry.2.push(to_col);
+        }
+        for (_id, (ref_table, from_cols, to_cols)) in groups.into_iter() {
+            keys.push(TableKey { key_type: "FOREIGN_KEY".into(), name: None, columns: from_cols.clone(), ref_table: Some(ref_table.clone()), ref_columns: Some(to_cols.clone()), unique: None });
+            foreign_keys.push(ForeignKeyEdge {
+                from_table: table_name.clone(),
+                from_columns: from_cols,
+                to_table: ref_table,
+                to_columns: to_cols,
+            });
+        }
+
+        // indexes
+        let mut idx_stmt = conn
+            .prepare(&format!("PRAGMA index_list('{}')", table_name.replace("'", "''")))
+            .map_err(|e| format!("Prepare index_list error: {}", e))?;
+        let idx_iter = idx_stmt
+            .query_map([], |row| {
+                // seq, name, unique, origin, partial
+                let name: String = row.get(1)?;
+                let unique: i64 = row.get(2)?;
+                Ok((name, unique != 0))
+            })
+            .map_err(|e| format!("index_list query error: {}", e))?;
+        for idx in idx_iter {
+            let (idx_name, unique) = idx.map_err(|e| format!("index row error: {}", e))?;
+            if idx_name.starts_with("sqlite_autoindex") { continue; }
+            let mut info_stmt = conn
+                .prepare(&format!("PRAGMA index_info('{}')", idx_name.replace("'", "''")))
+                .map_err(|e| format!("Prepare index_info error: {}", e))?;
+            let info_iter = info_stmt
+                .query_map([], |row| {
+                    // seqno, cid, name
+                    let col_name: String = row.get(2)?;
+                    Ok(col_name)
+                })
+                .map_err(|e| format!("index_info query error: {}", e))?;
+            let mut index_cols: Vec<String> = Vec::new();
+            for c in info_iter { index_cols.push(c.map_err(|e| format!("index_info row error: {}", e))?); }
+            keys.push(TableKey { key_type: "INDEX".into(), name: Some(idx_name), columns: index_cols, ref_table: None, ref_columns: None, unique: Some(unique) });
+        }
+
+        tables.push(TableInfo { name: table_name, columns: cols, keys });
+    }
+
+    Ok(DbSchemaSummary { tables, foreign_keys })
+}
+
+
+#[tauri::command]
 fn sqlite_schema_summary(state: tauri::State<AppState>, connection_id: String) -> Result<DbSchemaSummary, String> {
     let file_path = {
         let guard = state.sqlite_files.lock().map_err(|_| "state poisoned".to_string())?;

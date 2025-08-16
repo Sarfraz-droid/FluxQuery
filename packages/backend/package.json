@@ -1,0 +1,26 @@
+{
+  "name": "backend",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun run --hot index.ts",
+    "start": "bun run index.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "shared": "workspace:*",
+    "@ai-sdk/openai": "2.0.0-beta.16",
+    "@openrouter/ai-sdk-provider": "^1.1.2",
+    "@pinecone-database/pinecone": "^6.1.2",
+    "ai": "5.0.0-beta.34",
+    "dotenv": "^17.2.1",
+    "uuid": "^11.1.0",
+    "zod": "^4.0.17"
+  }
+}

@@ -3,6 +3,7 @@ import { Button } from "./ui/button";
 import { useAppStore } from "../store";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { Badge } from "./ui/badge";
 // import type { MouseEvent as ReactMouseEvent } from "react";
 
 type TopBarProps = {
@@ -83,23 +84,14 @@ function IconClose(props: React.SVGProps<SVGSVGElement>) {
   );
 }
 
-function IconFluxQuery(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" {...props}>
-      {/* Flow rings */}
-      <path d="M4 12c0-4.4 3.6-8 8-8 2.7 0 5.1 1.3 6.6 3.3" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M20 12c0 4.4-3.6 8-8 8-2.7 0-5.1-1.3-6.6-3.3" strokeLinecap="round" strokeLinejoin="round" />
-      {/* Flux bar */}
-      <path d="M9 12h6" strokeLinecap="round" />
-      {/* Q tail */}
-      <path d="M15 12l3 3" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
+// Removed old IconFluxQuery in favor of branded image in public/logo.png
 
 export default function TopBar({ toggleLeft, toggleRight }: TopBarProps) {
   const { runQuery, cancelQuery } = useAppStore();
   const runningJobId = useAppStore((s) => s.runningJobId);
+  const wsStatus = useAppStore((s) => s.wsStatus);
+  const initWebSocket = useAppStore((s) => s.initWebSocket);
+
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -127,8 +119,8 @@ export default function TopBar({ toggleLeft, toggleRight }: TopBarProps) {
     >
       <div className="flex items-center gap-3" data-tauri-drag-region="true">
         <div className="flex items-center gap-2 font-semibold text-white tracking-wide" data-tauri-drag-region="true">
-          <IconFluxQuery className="w-5 h-5" />
-          <span className="font-mono">FluxQuery</span>
+          <img src="/logo.png" alt="Flux Query logo" className="w-6 h-6 select-none" draggable={false} />
+          <span className="font-mono">Flux Query</span>
         </div>
         <Tabs
           value={currentTab}
@@ -143,28 +135,24 @@ export default function TopBar({ toggleLeft, toggleRight }: TopBarProps) {
               <span className="flex items-center gap-2">
                 <IconCode className="w-5 h-5" />
                 <span className="font-mono">Editor</span>
-                <IconCaret className="w-4 h-4 opacity-60" />
               </span>
             </TabsTrigger>
             <TabsTrigger value="settings" draggable>
               <span className="flex items-center gap-2">
                 <IconGear className="w-5 h-5" />
                 <span className="font-mono">Settings</span>
-                <IconCaret className="w-4 h-4 opacity-60" />
               </span>
             </TabsTrigger>
             <TabsTrigger value="db" draggable>
               <span className="flex items-center gap-2">
                 <IconDatabase className="w-5 h-5" />
                 <span className="font-mono">DB Details</span>
-                <IconCaret className="w-4 h-4 opacity-60" />
               </span>
             </TabsTrigger>
             <TabsTrigger value="visualizer" draggable>
               <span className="flex items-center gap-2">
                 <IconGraph className="w-5 h-5" />
                 <span className="font-mono">Visualizer</span>
-                <IconCaret className="w-4 h-4 opacity-60" />
               </span>
             </TabsTrigger>
           </TabsList>
@@ -191,6 +179,28 @@ export default function TopBar({ toggleLeft, toggleRight }: TopBarProps) {
       {/* Draggable spacer to allow grabbing anywhere in the top bar */}
       <div className="flex-1 h-10" data-tauri-drag-region="true" />
       <div className="flex items-center gap-2" data-tauri-drag-region="false">
+        {wsStatus === "connected" && (
+          <Badge
+            className="font-mono"
+          >
+            Connected
+          </Badge>
+        )}
+        {wsStatus === "connecting" && (
+          <Badge
+            className="font-mono"
+          >
+            Connecting
+          </Badge>
+        )}
+        {wsStatus === "disconnected" && (
+          <Badge
+            className="font-mono cursor-pointer"
+            onClick={() => initWebSocket()}
+          >
+            Disconnected
+          </Badge>
+        )}
         {runningJobId ? (
           <Button
             onClick={cancelQuery}
@@ -208,6 +218,7 @@ export default function TopBar({ toggleLeft, toggleRight }: TopBarProps) {
             Run (⌘⏎)
           </Button>
         )}
+
         <div className="ml-2 flex items-center">
           <Button size="sm" variant="ghost" onClick={() => { void win.minimize(); }} aria-label="Minimize" title="Minimize">
             <IconMinimize className="w-4.5 h-4.5" />
