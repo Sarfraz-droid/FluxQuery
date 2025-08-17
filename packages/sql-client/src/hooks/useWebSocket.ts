@@ -1,53 +1,63 @@
-import React, { useEffect } from 'react'
-import { useAppStore } from '../store'
-import { WEBSOCKET_EVENTS } from 'shared';
+import { useEffect, useRef } from 'react'
+import { WEBSOCKET_EVENTS, WebSocketEvents } from 'shared';
+import { useFixWithAI } from './useFixWithAI';
+import { useDbIndexer } from './useDbIndexer';
+import { useAgentMode } from '../components/Agent/useAgentMode';
 
 export const useWebSocket = () => {
+
+    const FixWithAI = useFixWithAI();
+    const fixWithAIRef = useRef(FixWithAI);
+    const indexDb = useDbIndexer();
+    const indexDbRef = useRef(indexDb);
+    const agent = useAgentMode();
+    const agentRef = useRef(agent);
+    // Keep ref updated with latest handlers without re-binding listeners
     useEffect(() => {
-        window.addEventListener(WEBSOCKET_EVENTS.OPEN, () => {
+        fixWithAIRef.current = FixWithAI;
+        indexDbRef.current = indexDb;
+        agentRef.current = agent;
+    }, [FixWithAI, indexDb, agent]);
+
+    useEffect(() => {
+        const onOpen = () => {
             console.log("WebSocket opened");
-        });
-
-        return () => {
-            window.removeEventListener(WEBSOCKET_EVENTS.OPEN, () => {
-                console.log("WebSocket opened");
-            });
         };
-    }, []);
 
-    useEffect(() => {
-        window.addEventListener(WEBSOCKET_EVENTS.MESSAGE, (event) => {
-            console.log("WebSocket message");
-        });
-
-        return () => {
-            window.removeEventListener(WEBSOCKET_EVENTS.MESSAGE, (event) => {
-                console.log("WebSocket message");
-            });
+        const onMessage = (event: any) => {
+            const { detail } = event;
+            console.log('Filtering Web socket event at: ', detail.event);
+            switch (detail.event) {
+                case WebSocketEvents.FIX_WITH_AI:
+                    fixWithAIRef.current.handleData(detail);
+                    break;
+                case WebSocketEvents.INDEX_DB:
+                    indexDbRef.current.handleData(detail);
+                    break;
+                case WebSocketEvents.AGENT:
+                    agentRef.current.handleData(detail);
+                    break;
+            }
         };
-    }, []);
 
-    useEffect(() => {
-        window.addEventListener(WEBSOCKET_EVENTS.CLOSE, () => {
+        const onClose = () => {
             console.log("WebSocket closed");
-        });
-
-        return () => {
-            window.removeEventListener(WEBSOCKET_EVENTS.CLOSE, () => {
-                console.log("WebSocket closed");
-            });
         };
-    }, []);
 
-    useEffect(() => {
-        window.addEventListener(WEBSOCKET_EVENTS.ERROR, () => {
+        const onError = () => {
             console.log("WebSocket error");
-        });
+        };
+
+        window.addEventListener(WEBSOCKET_EVENTS.OPEN, onOpen);
+        window.addEventListener(WEBSOCKET_EVENTS.MESSAGE, onMessage);
+        window.addEventListener(WEBSOCKET_EVENTS.CLOSE, onClose);
+        window.addEventListener(WEBSOCKET_EVENTS.ERROR, onError);
 
         return () => {
-            window.removeEventListener(WEBSOCKET_EVENTS.ERROR, () => {
-                console.log("WebSocket error");
-            });
+            window.removeEventListener(WEBSOCKET_EVENTS.OPEN, onOpen);
+            window.removeEventListener(WEBSOCKET_EVENTS.MESSAGE, onMessage);
+            window.removeEventListener(WEBSOCKET_EVENTS.CLOSE, onClose);
+            window.removeEventListener(WEBSOCKET_EVENTS.ERROR, onError);
         };
     }, []);
 }

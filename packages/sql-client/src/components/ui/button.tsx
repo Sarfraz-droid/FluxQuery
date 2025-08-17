@@ -8,7 +8,7 @@ type Variant =
   | "destructive"
   | "ghost";
 
-type Size = "sm" | "md" | "lg";
+type Size = "sm" | "md" | "lg" | "xs";
 
 export interface ButtonProps
   extends Omit<HTMLMotionProps<"button">, "ref"> {
@@ -28,6 +28,7 @@ const variantClass: Record<Variant, string> = {
 };
 
 const sizeClass: Record<Size, string> = {
+  xs: "h-6 px-2 text-xs rounded",
   sm: "h-8 px-2 text-xs rounded",
   md: "h-9 px-3 text-sm rounded",
   lg: "h-10 px-4 text-sm rounded",

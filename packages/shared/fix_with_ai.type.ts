@@ -30,3 +30,9 @@ export interface FixWithAIIntentQueryResponse {
         show_relationships: boolean;
     }[];
 }
+
+export interface FixWithAIQueryFixResponse {
+    transactionId: string;
+    state: FixWithAIStates;
+    fixedQuery: string;
+}

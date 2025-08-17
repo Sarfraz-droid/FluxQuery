@@ -51,7 +51,8 @@ export class WebSocketController {
         const deviceId = await ConnectedDevicesService.getInstance().connectToWebSocket(ws);
         console.log('Subscribing to FIX_WITH_AI topic for deviceId:', deviceId);
         ws.subscribe(formatTopic(WebSocketTopics.FIX_WITH_AI, deviceId));
-
+        ws.subscribe(formatTopic(WebSocketTopics.INDEX_DB, deviceId));
+        ws.subscribe(formatTopic(WebSocketTopics.AGENT, deviceId));
         return deviceId;
     }
 

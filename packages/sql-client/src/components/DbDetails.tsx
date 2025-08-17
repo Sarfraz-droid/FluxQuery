@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../store";
-import type { DbSchemaSummary } from "../types";
+import type { TABLE_TYPE } from "shared";
+import { Button } from "./ui/button";
+import { useDbIndexer } from "../hooks/useDbIndexer";
 
 export default function DbDetails() {
   const activeConnectionId = useAppStore((s) => s.activeConnectionId);
   const connections = useAppStore((s) => s.connections);
   const active = useMemo(() => connections.find((c) => c.id === activeConnectionId), [connections, activeConnectionId]);
-  const [schema, setSchema] = useState<DbSchemaSummary | null>(null);
+  const [schema, setSchema] = useState<TABLE_TYPE.DbSchemaSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -22,7 +24,7 @@ export default function DbDetails() {
         if (active.driver !== "sqlite") throw new Error("Only SQLite supported in this build");
         if (!active.filePath) throw new Error("Select a SQLite file");
         await invoke("sqlite_open", { connectionId: active.id, filePath: active.filePath });
-        const summary = await invoke<DbSchemaSummary>("sqlite_schema_summary", { connectionId: active.id });
+        const summary = await invoke<TABLE_TYPE.DbSchemaSummary>("sqlite_schema_summary", { connectionId: active.id });
         if (mounted) setSchema(summary);
       } catch (e) {
         if (mounted) setError((e as Error).message);
@@ -34,6 +36,10 @@ export default function DbDetails() {
     return () => { mounted = false; };
   }, [active?.id, active?.driver, active?.filePath]);
 
+  const { isIndexing, indexDb } = useDbIndexer();
+
+  
+
   if (!active) return <div className="p-4 text-sm text-gray-400">No active connection</div>;
   if (loading) return <div className="p-4 text-sm text-gray-400">Loading schema…</div>;
   if (error) return <div className="p-4 text-sm text-red-400">{error}</div>;
@@ -42,7 +48,19 @@ export default function DbDetails() {
   return (
     <div className="p-4 space-y-6 overflow-auto h-full">
       <div>
-        <div className="text-lg font-semibold">Tables</div>
+        <div className="flex w-full justify-between">
+          <div className="text-lg font-semibold">Tables</div>
+          <div>
+            <Button
+              size="sm"
+              className="my-0 py-0 px-5 font-mono"
+              onClick={() => indexDb(schema, active?.id)}
+              disabled={isIndexing}
+            >
+              {isIndexing ? <span className="text-xs text-gray-400">Indexing...</span> : <span>Index</span>}
+            </Button>
+          </div>
+        </div>
         <div className="mt-2 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {schema.tables.map((t) => (
             <div key={t.name} className="border panel rounded p-3 bg-gray-950/40">

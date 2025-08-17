@@ -1,4 +1,5 @@
 import NodeCache from "node-cache";
+import type { CacheKeyStoreData } from "shared";
 
 export class NodeCacheModule {
     cache: NodeCache;
@@ -9,7 +10,7 @@ export class NodeCacheModule {
         this.cache.set(key, value, ttl);
     }
     public get(key: string) {
-        return this.cache.get(key);
+        return JSON.parse(this.cache.get(key) || "{}") as CacheKeyStoreData;
     }
     public delete(key: string) {
         return this.cache.del(key);

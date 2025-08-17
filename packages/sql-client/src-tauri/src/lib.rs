@@ -129,25 +129,27 @@ fn run_sqlite_query(
     let conn = Connection::open_with_flags(file_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|e| format!("Failed to open DB: {}", e))?;
 
-    let trimmed = sql.trim_start();
+    // Normalize SQL: remove trailing semicolons and whitespace
+    let sql_clean: String = sql.trim().trim_end_matches(';').trim().to_string();
+    let trimmed = sql_clean.trim_start();
     let is_select = trimmed.to_lowercase().starts_with("select");
 
     if !is_select {
         // Non-select: execute and return empty result
-        conn.execute_batch(&sql)
+        conn.execute_batch(&sql_clean)
             .map_err(|e| format!("Execution error: {}", e))?;
         return Ok(QueryResult { columns: vec![], rows: vec![], total_rows: None, plan_steps: None, insights: None, plan_tables: None, rows_scanned_estimate: None });
     }
 
     // Total rows
-    let count_sql = format!("SELECT COUNT(*) AS count FROM ( {} )", sql);
+    let count_sql = format!("SELECT COUNT(*) AS count FROM ( {} )", sql_clean);
     let total_rows: u64 = conn
         .query_row(&count_sql, [], |r| r.get::<_, i64>(0))
         .map(|v| v as u64)
         .map_err(|e| format!("Count error: {}", e))?;
 
     // Paged rows
-    let paged_sql = format!("SELECT * FROM ( {} ) LIMIT ? OFFSET ?", sql);
+    let paged_sql = format!("SELECT * FROM ( {} ) LIMIT ? OFFSET ?", sql_clean);
     let mut stmt = conn
         .prepare(&paged_sql)
         .map_err(|e| format!("Prepare error: {}", e))?;
@@ -168,10 +170,17 @@ fn run_sqlite_query(
         rows.push(item.map_err(|e| format!("Row error: {}", e))?);
     }
 
+    // Total rows (for SELECT queries)
+    let count_sql = format!("SELECT COUNT(*) AS count FROM ( {} )", sql_clean);
+    let total_rows: u64 = conn
+        .query_row(&count_sql, [], |r| r.get::<_, i64>(0))
+        .map(|v| v as u64)
+        .map_err(|e| format!("Count error: {}", e))?;
+
     // Explain query plan for insights
     let mut plan_steps: Vec<String> = Vec::new();
     let mut explain_stmt = conn
-        .prepare(&format!("EXPLAIN QUERY PLAN {}", sql))
+        .prepare(&format!("EXPLAIN QUERY PLAN {}", sql_clean))
         .map_err(|e| format!("Explain prepare error: {}", e))?;
     let explain_iter = explain_stmt
         .query_map([], |row| {
@@ -271,6 +280,157 @@ fn run_sqlite_query(
 }
 
 #[tauri::command]
+fn run_sqlite_query_raw(
+    state: tauri::State<AppState>,
+    connection_id: String,
+    sql: String,
+) -> Result<QueryResult, String> {
+    let file_path = {
+        let guard = state.sqlite_files.lock().map_err(|_| "state poisoned".to_string())?;
+        guard.get(&connection_id).cloned().ok_or_else(|| "No SQLite file registered for this connection".to_string())?
+    };
+
+    let conn = Connection::open_with_flags(file_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|e| format!("Failed to open DB: {}", e))?;
+
+    // Normalize SQL: remove trailing semicolons and whitespace
+    let sql_clean: String = sql.trim().trim_end_matches(';').trim().to_string();
+    let trimmed = sql_clean.trim_start();
+    let is_select = trimmed.to_lowercase().starts_with("select");
+
+    if !is_select {
+        // Non-select: execute and return empty result
+        conn.execute_batch(&sql_clean)
+            .map_err(|e| format!("Execution error: {}", e))?;
+        return Ok(QueryResult { columns: vec![], rows: vec![], total_rows: None, plan_steps: None, insights: None, plan_tables: None, rows_scanned_estimate: None });
+    }
+
+    // Run the query as-is (no pagination)
+    let mut stmt = conn
+        .prepare(&sql_clean)
+        .map_err(|e| format!("Prepare error: {}", e))?;
+
+    let col_names: Vec<String> = stmt
+        .column_names()
+        .into_iter()
+        .map(|s| s.to_string())
+        .collect();
+
+    let rows_iter = stmt
+        .query_map([], |row| row_to_map(row, &col_names))
+        .map_err(|e| format!("Query error: {}", e))?;
+
+    let mut rows: Vec<HashMap<String, serde_json::Value>> = Vec::new();
+    for item in rows_iter {
+        rows.push(item.map_err(|e| format!("Row error: {}", e))?);
+    }
+
+    // Total rows (for SELECT queries)
+    let count_sql = format!("SELECT COUNT(*) AS count FROM ( {} )", sql_clean);
+    let total_rows: u64 = conn
+        .query_row(&count_sql, [], |r| r.get::<_, i64>(0))
+        .map(|v| v as u64)
+        .map_err(|e| format!("Count error: {}", e))?;
+
+    // Explain query plan for insights
+    let mut plan_steps: Vec<String> = Vec::new();
+    let mut explain_stmt = conn
+        .prepare(&format!("EXPLAIN QUERY PLAN {}", sql_clean))
+        .map_err(|e| format!("Explain prepare error: {}", e))?;
+    let explain_iter = explain_stmt
+        .query_map([], |row| {
+            // columns: id, parent, notused, detail
+            let detail: String = row.get(3)?;
+            Ok(detail)
+        })
+        .map_err(|e| format!("Explain query error: {}", e))?;
+    for s in explain_iter {
+        plan_steps.push(s.map_err(|e| format!("Explain row error: {}", e))?);
+    }
+
+    // Derive simple insights from plan
+    let mut insights: Vec<String> = Vec::new();
+    let mut table_access: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for step in &plan_steps {
+        let upper = step.to_uppercase();
+        if upper.contains("USING INDEX") {
+            insights.push(format!("Index used: {}", step));
+        }
+        if upper.contains("SCAN ") && !upper.contains("SEARCH ") {
+            insights.push(format!("Full scan: {}", step));
+        }
+
+        // Extract table name if present
+        let access = if upper.contains("SEARCH ") { "SEARCH" } else if upper.contains("SCAN ") { "SCAN" } else { "UNKNOWN" };
+        let mut pos = None;
+        if let Some(i) = upper.find("SEARCH ") { pos = Some(i + 7); }
+        if let Some(i) = upper.find("SCAN ") { pos = Some(i + 5); }
+        if let Some(mut start) = pos {
+            // skip whitespace
+            let chars: Vec<char> = step.chars().collect();
+            while start < chars.len() && chars[start].is_whitespace() { start += 1; }
+            // Optional TABLE keyword (case-insensitive)
+            let tail_upper = step[start..].to_uppercase();
+            if tail_upper.starts_with("TABLE ") {
+                start += 6; // len("TABLE ")
+            }
+            // Capture identifier or quoted name
+            let mut name = String::new();
+            if start < chars.len() && (chars[start] == '"' || chars[start] == '\'') {
+                let quote = chars[start];
+                start += 1;
+                while start < chars.len() && chars[start] != quote { name.push(chars[start]); start += 1; }
+            } else {
+                while start < chars.len() {
+                    let ch = chars[start];
+                    if ch.is_alphanumeric() || ch == '_' { name.push(ch); start += 1; }
+                    else { break; }
+                }
+            }
+            if !name.is_empty() {
+                // Prefer SCAN over SEARCH as a stronger signal
+                let existing = table_access.get(&name).cloned();
+                match existing.as_deref() {
+                    Some("SCAN") => { /* keep SCAN */ }
+                    _ => { table_access.insert(name, access.to_string()); }
+                }
+            }
+        }
+    }
+    if insights.is_empty() && !plan_steps.is_empty() {
+        insights.push("Plan analyzed with no obvious full scans".to_string());
+    }
+
+    // For tables referenced, collect total row counts and estimate scanned rows for full scans
+    let mut plan_tables: Vec<PlanTableInfo> = Vec::new();
+    let mut rows_scanned_estimate: u64 = 0;
+    for (table, access) in table_access.into_iter() {
+        // Skip SQLite internal tables
+        if table.starts_with("sqlite_") { continue; }
+        let total: Option<u64> = match conn.query_row(&format!("SELECT COUNT(*) FROM \"{}\"", table.replace('"', "")), [], |r| r.get::<_, i64>(0)) {
+            Ok(v) => Some(v as u64),
+            Err(_) => None,
+        };
+        if access == "SCAN" {
+            if let Some(t) = total { rows_scanned_estimate = rows_scanned_estimate.saturating_add(t); }
+        }
+        plan_tables.push(PlanTableInfo { table, access, total_rows: total });
+    }
+    // Always return a numeric estimate (0 if no full scans detected)
+    let rows_scanned_estimate_opt = Some(rows_scanned_estimate);
+
+    Ok(QueryResult {
+        columns: col_names,
+        rows,
+        total_rows: Some(total_rows),
+        plan_steps: Some(plan_steps),
+        insights: Some(insights),
+        plan_tables: if plan_tables.is_empty() { None } else { Some(plan_tables) },
+        rows_scanned_estimate: rows_scanned_estimate_opt,
+    })
+}
+
+#[tauri::command]
 fn sqlite_table_summary(state: tauri::State<AppState>, connection_id: String, table_name: String) -> Result<DbSchemaSummary, String> {
     let file_path = {
         let guard = state.sqlite_files.lock().map_err(|_| "state poisoned".to_string())?;
@@ -279,13 +439,12 @@ fn sqlite_table_summary(state: tauri::State<AppState>, connection_id: String, ta
     let conn = Connection::open_with_flags(file_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|e| format!("Failed to open DB: {}", e))?;
 
-    // tables list
+    // tables list (only the requested table)
     let mut table_stmt = conn
-        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name = ?1")
         .map_err(|e| format!("Prepare tables error: {}", e))?;
     let table_names_iter = table_stmt
-        .query_map([], |row| row.get::<_, String>(0))
-        .iter().filter(|row| row == &table_name)
+        .query_map(params![table_name], |row| row.get::<_, String>(0))
         .map_err(|e| format!("Tables query error: {}", e))?;
     let mut tables: Vec<TableInfo> = Vec::new();
     let mut foreign_keys: Vec<ForeignKeyEdge> = Vec::new();
@@ -504,7 +663,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
-        .invoke_handler(tauri::generate_handler![sqlite_open, run_sqlite_query, sqlite_schema_summary])
+        .invoke_handler(tauri::generate_handler![sqlite_open, run_sqlite_query, run_sqlite_query_raw, sqlite_table_summary, sqlite_schema_summary])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

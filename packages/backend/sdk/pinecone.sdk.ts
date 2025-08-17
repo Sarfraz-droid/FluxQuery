@@ -56,6 +56,14 @@ class PineConeSDK {
             }
         ]);
     }
+
+    public async query(indexName: string, vector: number[], topK: number = 5) {
+        return await this.pinecone.index(indexName).query({
+            topK,
+            vector,
+            includeMetadata: true
+        });
+    }
 }
 
 export default PineConeSDK;

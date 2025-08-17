@@ -2,6 +2,7 @@ import { useAppStore } from "../store";
 import { Badge } from "./ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Button } from "./ui/button";
+import { AgentMode } from "./Agent";
 
 export default function RightPanel() {
   const activeConnectionId = useAppStore((s) => s.activeConnectionId);
@@ -60,15 +61,7 @@ export default function RightPanel() {
 
         <TabsContent value="agent" className="min-h-0">
           <div className="p-3 space-y-3 overflow-auto h-full">
-            <div className="text-xs uppercase text-gray-400">Agent</div>
-            <div className="text-sm text-gray-300">
-              Ask the agent to help analyze your query, suggest indexes, or explain results.
-            </div>
-            <div>
-              <Button size="sm" variant="secondary" onClick={() => { /* hook up later */ }}>
-                Open Agent
-              </Button>
-            </div>
+            <AgentMode />
           </div>
         </TabsContent>
       </Tabs>

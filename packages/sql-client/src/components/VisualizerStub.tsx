@@ -3,7 +3,7 @@ import ReactFlow, { Background, Controls, MiniMap, type Edge, type Node, useEdge
 import "reactflow/dist/style.css";
 import dagre from "dagre";
 import { useAppStore } from "../store";
-import type { DbSchemaSummary } from "../types";
+import type { TABLE_TYPE } from "shared";
 import { invoke } from "@tauri-apps/api/core";
 
 const nodeWidth = 280;
@@ -29,7 +29,7 @@ export default function VisualizerStub() {
   const active = useMemo(() => connections.find((c) => c.id === activeConnectionId), [connections, activeConnectionId]);
 
   const [error, setError] = useState<string | null>(null);
-  const [schema, setSchema] = useState<DbSchemaSummary | null>(null);
+  const [schema, setSchema] = useState<TABLE_TYPE.DbSchemaSummary | null>(null);
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -45,7 +45,7 @@ export default function VisualizerStub() {
         if (active.driver !== "sqlite") throw new Error("Only SQLite supported in this build");
         if (!active.filePath) throw new Error("Select a SQLite file");
         await invoke("sqlite_open", { connectionId: active.id, filePath: active.filePath });
-        const s = await invoke<DbSchemaSummary>("sqlite_schema_summary", { connectionId: active.id });
+        const s = await invoke<TABLE_TYPE.DbSchemaSummary>("sqlite_schema_summary", { connectionId: active.id });
         if (!mounted) return;
         setSchema(s);
         setNodes([]);

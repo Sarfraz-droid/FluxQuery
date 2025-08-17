@@ -1,6 +1,8 @@
 import * as FIX_WITH_AI from "./fix_with_ai.type"
+import * as TABLE_TYPE from "./table.type"
+import * as AGENT from "./agent.type"
 
-export {FIX_WITH_AI}
+
 
 export const WEBSOCKET_EVENTS = {
     OPEN: "ws-open",
@@ -19,10 +21,14 @@ export const LIST_OF_MODELS = [
 
 export const WebSocketEvents = {
     FIX_WITH_AI: "fix_with_ai",
+    INDEX_DB: "index_db",
+    AGENT: "agent",
 } as const;
 
 export const WebSocketTopics = {
     FIX_WITH_AI: "fix_with_ai",
+    INDEX_DB: "index_db",
+    AGENT: "agent",
 } as const;
 
 export enum ActionType {
@@ -42,6 +48,8 @@ export interface WebSocketPayload {
 export enum EventType {
     INFORMATION = "information",
     ERROR = "error",
+    QUERY = "query",
+    RESULT = "result",
 }
 
 export interface WebSocketMessage {
@@ -54,3 +62,5 @@ export interface CacheKeyStoreData {
     transactionId: string;
     data: any;
 }
+
+export {FIX_WITH_AI, TABLE_TYPE, AGENT}

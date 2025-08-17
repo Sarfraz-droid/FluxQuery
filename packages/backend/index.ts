@@ -1,5 +1,7 @@
 import "dotenv/config";
 import { WebSocketController } from "./controller/WebSocketController";
+import type { TABLE_TYPE } from "shared";
+import { PineconeService } from "./service/Pinecone.service";
 
 const PORT = Number(process.env.PORT || 8787);
 
@@ -27,7 +29,7 @@ export const server = Bun.serve({
             console.log("WebSocket closed");
         }
     },
-    fetch(req, server) { 
+    async fetch(req, server) { 
         const url = new URL(req.url);
 
         const params = url.searchParams;
@@ -38,6 +40,9 @@ export const server = Bun.serve({
             console.log("Upgraded to WebSocket");
             return;
         }
+
+
+        return new Response("Not Found", { status: 404, headers: corsHeaders });
     }
 });
 

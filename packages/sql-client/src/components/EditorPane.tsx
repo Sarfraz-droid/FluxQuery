@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useAppStore } from "../store";
-import type { DbSchemaSummary } from "../types";
+import type { TABLE_TYPE } from "shared";
 import Editor, { OnMount } from "@monaco-editor/react";
 import { Button } from "./ui/button";
 import type { languages as MonacoLanguages } from "monaco-editor";
@@ -32,7 +32,7 @@ export default function EditorPane() {
   const suggestions = useMemo<BaseSuggestion[]>(() => buildSqlSuggestions(schema), [schema]);
   const suggestionsRef = useRef<BaseSuggestion[]>([]);
   useEffect(() => { suggestionsRef.current = suggestions; }, [suggestions]);
-  const schemaRef = useRef<DbSchemaSummary | null>(null);
+  const schemaRef = useRef<TABLE_TYPE.DbSchemaSummary | null>(null);
   useEffect(() => { schemaRef.current = schema; }, [schema]);
 
   const handleMount: OnMount = (editor, monaco) => {
@@ -166,7 +166,7 @@ export default function EditorPane() {
 
 type BaseSuggestion = { label: string; insertText: string; kind: number; detail?: string };
 
-function buildSqlSuggestions(schema: DbSchemaSummary | null): BaseSuggestion[] {
+function buildSqlSuggestions(schema: TABLE_TYPE.DbSchemaSummary | null): BaseSuggestion[] {
   if (!schema) return [];
   const items: BaseSuggestion[] = [];
   for (const table of schema.tables) {
@@ -194,7 +194,7 @@ function buildSqlSuggestions(schema: DbSchemaSummary | null): BaseSuggestion[] {
   return items;
 }
 
-function buildColumnSuggestionsForTable(schema: DbSchemaSummary, tableName: string): BaseSuggestion[] {
+function buildColumnSuggestionsForTable(schema: TABLE_TYPE.DbSchemaSummary, tableName: string): BaseSuggestion[] {
   const table = schema.tables.find((t) => t.name.toLowerCase() === tableName.toLowerCase());
   if (!table) return [];
   return table.columns.map((c) => ({

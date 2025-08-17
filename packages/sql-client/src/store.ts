@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import type { Connection, QueryResult, QueryRun, DbSchemaSummary } from "./types";
+import type { Connection, QueryResult, QueryRun } from "./types";
 import { invoke } from "@tauri-apps/api/core";
-import { WEBSOCKET_EVENTS } from "shared";
+import { WEBSOCKET_EVENTS, TABLE_TYPE } from "shared";
 
 async function runQuerySqlite(params: { connectionId: string; sql: string; page: number; pageSize: number; signal?: AbortSignal; }): Promise<QueryResult> {
   // Abort handling is client-side only. If aborted, throw like fetch does.
@@ -21,7 +21,7 @@ type StoreState = {
   activeConnectionId?: string;
   history: QueryRun[];
   editorSql: string;
-  schema: DbSchemaSummary | null;
+  schema: TABLE_TYPE.DbSchemaSummary | null;
   page: number;
   pageSize: number;
   runningJobId: string | null;
@@ -39,7 +39,7 @@ type StoreState = {
   runQuery: (opts?: { silent?: boolean }) => Promise<void>;
   cancelQuery: () => void;
   initWebSocket: () => void;
-  sendMessage: (message: string) => void;
+  sendMessage: (message: any) => void;
 };
 
 export const useAppStore = create<StoreState>()(persist((set, get) => {
@@ -77,7 +77,7 @@ export const useAppStore = create<StoreState>()(persist((set, get) => {
         websocket.onmessage = (event: MessageEvent) => {
           // For now, just log. Wire to state as needed later.
           console.debug("WS message:", event.data);
-          window.dispatchEvent(new CustomEvent(WEBSOCKET_EVENTS.MESSAGE, { detail: event.data }));
+          window.dispatchEvent(new CustomEvent(WEBSOCKET_EVENTS.MESSAGE, { detail: JSON.parse(event.data) }));
         };
         websocket.onclose = () => {
           websocket = null;
@@ -94,6 +94,7 @@ export const useAppStore = create<StoreState>()(persist((set, get) => {
     },
     sendMessage: (message: any) => {
       if (!websocket) return;
+      console.log("Sending message: ", message);  
       websocket.send(JSON.stringify(message));
     },
       refreshSchema: async () => {
@@ -116,7 +117,7 @@ export const useAppStore = create<StoreState>()(persist((set, get) => {
           return;
         }
         await invoke("sqlite_open", { connectionId: active.id, filePath: active.filePath });
-        const summary = await invoke<DbSchemaSummary>("sqlite_schema_summary", { connectionId: active.id });
+        const summary = await invoke<TABLE_TYPE.DbSchemaSummary>("sqlite_schema_summary", { connectionId: active.id });
         set({ schema: summary });
       },
     setPage: (p) => set({ page: p }),
@@ -137,11 +138,21 @@ export const useAppStore = create<StoreState>()(persist((set, get) => {
     runQuery: async (opts) => { 
       const silent = opts?.silent ?? false;
       const { editorSql, page, pageSize, activeConnectionId, connections } = get();
+      let serializedSQL = editorSql.trim();
+      
+              if (serializedSQL.endsWith(';'))
+              {
+                const index = serializedSQL.lastIndexOf(';');
+                serializedSQL = serializedSQL.slice(0, index);
+              }
+              console.log('serializedSQL', serializedSQL)
       if (!activeConnectionId) {
         const id = crypto.randomUUID();
+
+
         set((st) => ({
           history: [
-            { id, connectionId: "", sql: editorSql, startedAt: Date.now(), status: "error", error: "Select an active connection first" },
+            { id, connectionId: "", sql: serializedSQL, startedAt: Date.now(), status: "error", error: "Select an active connection first" },
             ...st.history,
           ],
           lastRunId: id,
@@ -156,7 +167,7 @@ export const useAppStore = create<StoreState>()(persist((set, get) => {
         history: silent
           ? st.history
           : [
-              { id: runId, connectionId: activeConnectionId, sql: editorSql, startedAt, status: "running" },
+              { id: runId, connectionId: activeConnectionId, sql: serializedSQL, startedAt, status: "running" },
               ...st.history,
             ],
         lastRunId: silent ? st.lastRunId : runId,
@@ -169,7 +180,7 @@ export const useAppStore = create<StoreState>()(persist((set, get) => {
           if (!active.filePath) throw new Error("Select a SQLite file first");
           // Ensure backend knows about this mapping
           await invoke("sqlite_open", { connectionId: active.id, filePath: active.filePath });
-          result = await runQuerySqlite({ connectionId: active.id, sql: editorSql, page, pageSize, signal: abortController.signal });
+          result = await runQuerySqlite({ connectionId: active.id, sql: serializedSQL, page, pageSize, signal: abortController.signal });
         } else {
           throw new Error("Only SQLite is supported in this build");
         }
