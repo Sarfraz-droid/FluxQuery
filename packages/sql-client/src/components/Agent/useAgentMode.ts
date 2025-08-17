@@ -1,9 +1,10 @@
-import React, { useState } from 'react'
-import { ActionType, AGENT, EventType, TABLE_TYPE, WebSocketEvents, WebSocketMessage, WebSocketPayload, WebSocketTopics } from 'shared';
+import { useState } from 'react'
+import { ActionType, EventType, TABLE_TYPE, WebSocketEvents, WebSocketMessage, WebSocketPayload } from 'shared';
 import { useAppStore } from '../../store';
 import { useAgentModeStore } from '../../store/agentMode.store';
 import { invoke } from '@tauri-apps/api/core';
 import { QueryResult } from '../../types';
+import { TableRow } from 'shared/table.type';
 
 export const useAgentMode = () => {
     const [userInput, setUserInput] = useState("");
@@ -30,7 +31,10 @@ export const useAgentMode = () => {
             },
             action: ActionType.INITIATE
         }
-        addMessage(`Getting Context for the query: ${userInput}`);
+        addMessage("🧠 Analyzing your request against the database schema…");
+        if (userInput?.trim()) {
+            addMessage(`📝 Request: "${userInput.trim()}"`);
+        }
         updateIsRunning(true);
 
         sendMessage(data);
@@ -55,11 +59,22 @@ export const useAgentMode = () => {
     const handleQuery = async (data: WebSocketMessage) => {
         console.log("data: ", data);
         
+        // Deduplicate identical queries on the client in case of accidental repeats
+        const normalize = (sql: string) => sql.toLowerCase().replace(/--.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s+/g, " ").replace(/;\s*$/, "").trim();
+        const incoming = normalize(data.data.query ?? "");
+        const alreadySent = (useAgentModeStore.getState().query || []).some((q) => normalize(q) === incoming);
+        if (alreadySent) {
+            console.log("Skipping duplicate query execution", data.data.query);
+            return;
+        }
+
         addQuery(data.data.query);
         updateIsRunning(true);
 
         try {
-            addMessage(`Executing query: ${data.data.query}`);
+            const queryText: string = data.data.query ?? "";
+            const truncated = queryText.length > 500 ? `${queryText.slice(0, 500)}…` : queryText;
+            addMessage(`▶️ Running SQL: ${truncated}`);
 
             const result = await invoke<QueryResult>("run_sqlite_query_raw", {
                 connectionId: active,
@@ -76,14 +91,36 @@ export const useAgentMode = () => {
                 data: {
                     transactionId: data.data.transactionId,
                     result: result.rows,
+                    success: result.rows.length > 0,
+                    error: result.rows.length === 0 ? "No rows returned" : undefined
                 }
             }
 
             sendMessage(payload);
 
+            addMessage(`📦 Retrieved ${result.rows.length} row(s). Sending results back to the agent…`);
             updateIsRunning(false);
         } catch (error) {
             console.error("error: ", error);
+            const message = error instanceof Error ? error.message : String(error);
+            addMessage(`❌ Failed to run SQL: ${message}`);
+            const failureResult: TableRow[] = [{
+                columns: ["error"],
+                rows: [[message]]
+            }]
+            
+            const payload: WebSocketPayload = {
+                event: WebSocketEvents.AGENT,
+                action: ActionType.UPDATE,
+                data: {
+                    transactionId: data.data.transactionId,
+                    result: failureResult,
+                    success: false,
+                    error: `Failed to run SQL: ${message}`
+                }
+            }
+
+            sendMessage(payload);
             updateIsRunning(false);
         }
     }
@@ -95,7 +132,10 @@ export const useAgentMode = () => {
 
         setEditorSql(query);
 
-        addMessage(`Generated Query: ${query}`);
+        const truncated = query.length > 500 ? `${query.slice(0, 500)}…` : query;
+        addMessage(`✅ Generated SQL. It has been inserted into the editor.`);
+        addMessage(`🧾 SQL: ${truncated}`);
+        addMessage(`💡 Review the SQL and press Run to execute it.`);
 
         updateIsRunning(false);
     }

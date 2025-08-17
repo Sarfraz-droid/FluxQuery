@@ -9,6 +9,14 @@ export type Connection = {
   password?: string;
   filePath?: string;
   ssl?: boolean;
+  // Optional SSH tunnel configuration (for non-SQLite drivers)
+  sshEnabled?: boolean;
+  sshHost?: string;
+  sshPort?: number;
+  sshUser?: string;
+  sshPassword?: string;
+  sshPrivateKey?: string; // path to private key file
+  sshPassphrase?: string;
 };
 
 export type QueryRun = {

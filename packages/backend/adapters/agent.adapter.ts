@@ -7,6 +7,17 @@ import { WebSocketController } from "../controller/WebSocketController";
 import { formatTopic } from "../utils";
 
 export class AgentAdapter { 
+    private static readonly MAX_HELPER_QUERIES = 5;
+
+    private static normalizeQuery(sql?: string): string {
+        return (sql || "")
+            .toLowerCase()
+            .replace(/--.*$/gm, "") // strip single-line comments
+            .replace(/\/\*[\s\S]*?\*\//g, "") // strip block comments
+            .replace(/\s+/g, " ")
+            .replace(/;\s*$/, "")
+            .trim();
+    }
     public static processAgent(transactionId: string) {
         const cacheStoreData = CacheModule.get(transactionId);
 
@@ -14,9 +25,11 @@ export class AgentAdapter {
             throw new Error("Cache store data not found");
         }
 
+
+
         const data = cacheStoreData.data as AGENT.AgentCacheStoreData;
 
-        console.log("data: ", data);
+        console.log("data: ", data.state);
 
         switch (data.state) {
             case AGENT.AgentStates.INTENT_PROMPT:
@@ -47,15 +60,29 @@ export class AgentAdapter {
 
         const { query, is_query_required, required_tables } = response as { query: string, is_query_required: boolean, required_tables: string[] };
 
-        if(data.query?.length && data.query.length > 0) {
-            data.query.push(query);
-        } else {
-            data.query = [query];
+        const normalizedIncoming = this.normalizeQuery(query);
+        const existingQueries = data.query || [];
+        const hasDuplicate = existingQueries
+            .map((q) => this.normalizeQuery(q))
+            .includes(normalizedIncoming);
+
+        // Decide whether to continue helper queries or move to finalization
+        const reachedLimit = (existingQueries?.length || 0) >= this.MAX_HELPER_QUERIES;
+        const shouldFinalize = reachedLimit || hasDuplicate;
+
+        // Maintain history only if it's a genuinely new helper query
+        if (!hasDuplicate) {
+            if (existingQueries?.length && existingQueries.length > 0) {
+                existingQueries.push(query);
+                data.query = existingQueries;
+            } else {
+                data.query = [query];
+            }
         }
 
         data.query_revalidation = is_query_required ? 1 : 0;
         data.required_tables = required_tables;
-        data.state = is_query_required ? AGENT.AgentStates.QUERY_PROMPT : AGENT.AgentStates.INTENT_PROMPT;
+        data.state = shouldFinalize ? AGENT.AgentStates.QUERY_PROMPT : AGENT.AgentStates.INTENT_PROMPT;
         data.status = AGENT.AgentStatus.PENDING;
 
         const cacheStoreData: CacheKeyStoreData = {
@@ -64,6 +91,11 @@ export class AgentAdapter {
         }
 
         CacheModule.set(data.transactionId, JSON.stringify(cacheStoreData));
+
+        if (shouldFinalize) {
+            // Skip publishing another helper query; proceed to final query generation
+            return this.processQueryExecution(data);
+        }
 
         WebSocketController.getInstance().publish(formatTopic(WebSocketTopics.AGENT, data.deviceId), {
             event: WebSocketEvents.AGENT,
@@ -95,7 +127,12 @@ export class AgentAdapter {
         data.state = AGENT.AgentStates.QUERY_RESULT;
         data.status = AGENT.AgentStatus.COMPLETED;
 
-        CacheModule.set(data.transactionId, JSON.stringify(data));
+        const cacheStoreData: CacheKeyStoreData = {
+            transactionId: data.transactionId,
+            data
+        }
+
+        CacheModule.set(data.transactionId, JSON.stringify(cacheStoreData));
 
         WebSocketController.getInstance().publish(formatTopic(WebSocketTopics.AGENT, data.deviceId), {
             event: WebSocketEvents.AGENT,

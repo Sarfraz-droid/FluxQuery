@@ -11,12 +11,24 @@ export class AgentPromptService {
         });
 
         return `
-        You are a helpful assistant that can help with a wide range of tasks.
-        Your role is to identify the intent of the user's prompt and generate query to get more information about the table.
-        You should get the table schema from the table details and generate the query based on the user's prompt.
-        If user is not asking about the table, you should return "not_relevant".
+        You are a focused SQL planning assistant for SQLite.
+        Task: Decide the next SMALL helper SQL query (or stop) to progress the user's request.
 
-        Query should be small and should have at max 50 rows. (Limit max rows to 50 for each query when generating the query. whenever it is necessary)
+        Constraints and best practices:
+        - Never repeat an identical query already present in Queries.
+        - Prefer lightweight exploration first (DISTINCT values, COUNTs) before heavy joins.
+        - Always add LIMIT 50 unless the query is an aggregate with a single row.
+        - Avoid SELECT *; project only necessary columns.
+        - Avoid ORDER BY unless explicitly requested.
+        - Only use tables present in Table Details.
+
+        Stopping rule:
+        - If enough information has been gathered to write the final answer query, set is_query_required to false.
+        - If the user's prompt is not about the database, set query to "not_relevant", is_query_required to false, and required_tables to [].
+
+        Example flow:
+        - Initial: SELECT DISTINCT category FROM flashcards LIMIT 50;
+        - Follow-up: SELECT question, answer FROM flashcards WHERE category = 'Data Science' LIMIT 50;
 
         User Prompt: ${prompt}
 
@@ -26,18 +38,15 @@ export class AgentPromptService {
         Queries:
         ${queries.join("\n ------------- \n")}
         
-        Query Result:
-        ${query_result.map((result) => result.map((row) => JSON.stringify(row)).join("\n ------------- \n")).join("\n ------------- \n")}
+        Query Results (JSON rows):
+        ${query_result.map((result) => result.map((row) => JSON.stringify(row)).join("\n -- \n")).join("\n --------------- \n")}
 
-
-        Return the query in the following format:
-
+        Return STRICTLY this JSON (and nothing else):
         {
-            "query": "{{query}}",
-            "is_query_required": true/false,
-            "required_tables": [...table_names]
+            "query": "...",               // SQL text or "not_relevant"
+            "is_query_required": true|false,
+            "required_tables": ["table_a", "table_b"]
         }
-
         `;
     }
 
@@ -50,32 +59,31 @@ export class AgentPromptService {
         });
 
         return `
-        You are a helpful assistant that can help with a wide range of tasks.
-        Your role is to execute the query and return the result.
-        Create an SQL query to get the result from the database.
+        You are a SQLite expert.
+        Task: Produce ONE final SQL query that directly answers the user's prompt, leveraging insights from helper queries and results.
+
+        Requirements:
+        - Only use the tables listed below.
+        - Prefer simple, efficient SQL. Avoid unnecessary SELECT * and ORDER BY.
+        - Include LIMIT 50 if the query can return many rows.
+        - If the problem is not relevant to the database, set query to "not_relevant".
 
         User Prompt: ${data.prompt}
-        
-        You have been given a user prompt and a list of helper queries and their results.
-
-        You have to use the helper queries and their results to generate the final query.
 
         Table Details:
         ${tableFlashCardPrompts.join("\n ------------- \n")}
 
         Helper Queries:
         ${data.query?.join("\n ------------- \n")}
+ 
+        Helper Query Results (JSON rows):
+        ${data.query_result?.map((result) => result.map((row) => JSON.stringify(row)).join("\n -- \n")).join("\n --------------- \n")}
 
-        Helper Query Results:
-        ${data.query_result?.join("\n ------------- \n")}
 
-        Return the query in the following format:
-
+        Return STRICTLY this JSON (and nothing else):
         {
-            "query": "{{query}}",
+            "query": "..."
         }
-
-        If the query is not relevant, return "not_relevant".
         `;
     }
 }

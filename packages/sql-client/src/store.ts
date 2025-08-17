@@ -182,7 +182,22 @@ export const useAppStore = create<StoreState>()(persist((set, get) => {
           await invoke("sqlite_open", { connectionId: active.id, filePath: active.filePath });
           result = await runQuerySqlite({ connectionId: active.id, sql: serializedSQL, page, pageSize, signal: abortController.signal });
         } else {
-          throw new Error("Only SQLite is supported in this build");
+          // Network drivers (postgres, mysql)
+          const { host, port, database, user } = active;
+          if (!host) throw new Error("Host is required");
+          if (!user) throw new Error("User is required");
+          if (!database) throw new Error("Database is required");
+          const resolvedPort = port ?? (active.driver === "postgres" ? 5432 : 3306);
+          result = await invoke<QueryResult>("run_network_query", {
+            driver: active.driver,
+            host,
+            port: resolvedPort,
+            database,
+            user,
+            password: active.password,
+            ssl: active.ssl ?? false,
+            sql: serializedSQL,
+          });
         }
         const durationMs = Date.now() - startedAt;
         set((st) => {

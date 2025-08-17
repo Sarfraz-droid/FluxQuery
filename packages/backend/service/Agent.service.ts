@@ -53,7 +53,7 @@ export class AgentService {
     public handleUpdateAgent(data: WebSocketPayload) {
         console.log("handleUpdateAgent: ", data);
 
-        const { transactionId, result } = data.data as { transactionId: string, result: TABLE_TYPE.TableRow[] };
+        const { transactionId, result, success, error} = data.data as { transactionId: string, result: TABLE_TYPE.TableRow[], success: boolean, error: string };
 
         const cacheData = CacheModule.get(transactionId);
 
@@ -61,17 +61,29 @@ export class AgentService {
             throw new Error("Cache data not found");
         }
 
-        const agentData = cacheData as any as AGENT.AgentCacheStoreData;
+        const agentData = cacheData.data as AGENT.AgentCacheStoreData;
         console.log("cacheData: ", agentData);
         
 
         console.log("result: ", result);
 
-        agentData.query_result = [...(agentData?.query_result || []), result];
+        if(success) {
+            agentData.query_result = [...(agentData?.query_result || []), result];
+        } else {
+            const errorResult: TABLE_TYPE.TableRow[] = [{
+                columns: ["error"],
+                rows: [[error]]
+            }]
+            agentData.query_result = [...(agentData?.query_result || []), errorResult];
+            agentData.state = AGENT.AgentStates.INTENT_PROMPT;
+            agentData.query_revalidation = 1;
+        }
+
+        cacheData.data = agentData;
 
         CacheModule.set(transactionId, JSON.stringify(cacheData));
 
-        console.log("agentData: ", agentData);
+        
 
         AgentAdapter.processAgent(transactionId);
     }

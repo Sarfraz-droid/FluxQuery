@@ -3,6 +3,11 @@ use std::sync::Mutex;
 
 use rusqlite::{params, Connection, OpenFlags, Row, types::ValueRef};
 use serde::Serialize;
+use base64;
+
+// Network drivers (Postgres/MySQL)
+use postgres::{Client as PgClient, SimpleQueryMessage, NoTls};
+use mysql::{prelude::Queryable, PooledConn as MyConn, Pool as MyPool, OptsBuilder as MyOptsBuilder, Value as MyValue};
 
 // Frontend expects camelCase keys
 #[derive(Serialize, Clone)]
@@ -277,6 +282,116 @@ fn run_sqlite_query(
         plan_tables: if plan_tables.is_empty() { None } else { Some(plan_tables) },
         rows_scanned_estimate: rows_scanned_estimate_opt,
     })
+}
+
+#[tauri::command]
+fn run_network_query(
+    driver: String, // "postgres" | "mysql"
+    host: String,
+    port: u16,
+    database: String,
+    user: String,
+    password: Option<String>,
+    ssl: Option<bool>,
+    sql: String,
+) -> Result<QueryResult, String> {
+    // Normalize; pagination and EXPLAIN are not implemented for network drivers in this minimal pass
+    let sql_clean: String = sql.trim().trim_end_matches(';').trim().to_string();
+    let is_select: bool = sql_clean.to_lowercase().starts_with("select");
+
+    match driver.as_str() {
+        "postgres" => {
+            // Connection string
+            // e.g. host=localhost port=5432 dbname=postgres user=postgres password=... sslmode=disable|require
+            let mut params: Vec<String> = Vec::new();
+            params.push(format!("host={}", host));
+            params.push(format!("port={}", port));
+            params.push(format!("dbname={}", database));
+            params.push(format!("user={}", user));
+            if let Some(pw) = password { params.push(format!("password={}", pw)); }
+            let sslmode = if ssl.unwrap_or(false) { "require" } else { "disable" };
+            params.push(format!("sslmode={}", sslmode));
+            let conn_str = params.join(" ");
+
+            let mut client = PgClient::connect(&conn_str, NoTls)
+                .map_err(|e| format!("Postgres connect error: {}", e))?;
+
+            // For simplicity, use simple_query which returns heterogeneous messages
+            let messages = client
+                .simple_query(&sql_clean)
+                .map_err(|e| format!("Postgres query error: {}", e))?;
+
+            // Aggregate first result set into QueryResult
+            let mut columns: Vec<String> = Vec::new();
+            let mut rows: Vec<HashMap<String, serde_json::Value>> = Vec::new();
+            for msg in messages {
+                match msg {
+                    SimpleQueryMessage::Row(row) => {
+                        if columns.is_empty() {
+                            columns = row.columns().iter().map(|c| c.name().to_string()).collect();
+                        }
+                        let mut obj = HashMap::with_capacity(row.len());
+                        for (i, col) in columns.iter().enumerate() {
+                            let v = row.get(i);
+                            obj.insert(col.clone(), match v {
+                                Some(s) => serde_json::Value::String(s.to_string()),
+                                None => serde_json::Value::Null,
+                            });
+                        }
+                        rows.push(obj);
+                    }
+                    SimpleQueryMessage::CommandComplete(_c) => { /* ignore */ }
+                    _ => {}
+                }
+            }
+            Ok(QueryResult { columns, rows, total_rows: None, plan_steps: None, insights: None, plan_tables: None, rows_scanned_estimate: None })
+        }
+        "mysql" => {
+            let mut opts = MyOptsBuilder::new();
+            opts = opts.ip_or_hostname(Some(host));
+            opts = opts.tcp_port(port);
+            opts = opts.db_name(Some(database));
+            opts = opts.user(Some(user));
+            if let Some(pw) = password { opts = opts.pass(Some(pw)); }
+            let pool = MyPool::new(opts).map_err(|e| format!("MySQL connect error: {}", e))?;
+            let mut conn: MyConn = pool.get_conn().map_err(|e| format!("MySQL get_conn error: {}", e))?;
+
+            if !is_select {
+                conn.exec_drop(sql_clean, ()).map_err(|e| format!("MySQL exec error: {}", e))?;
+                return Ok(QueryResult { columns: vec![], rows: vec![], total_rows: None, plan_steps: None, insights: None, plan_tables: None, rows_scanned_estimate: None });
+            }
+
+            let mut result = conn.query_iter(sql_clean.clone()).map_err(|e| format!("MySQL query error: {}", e))?;
+            let cols_set = result.columns();
+            let cols_slice = cols_set.as_ref();
+            let columns: Vec<String> = cols_slice.iter().map(|c| c.name_str().to_string()).collect();
+            let mut rows: Vec<HashMap<String, serde_json::Value>> = Vec::new();
+            while let Some(row_res) = result.next() {
+                let row = row_res.map_err(|e| format!("MySQL row error: {}", e))?;
+                let mut obj = HashMap::with_capacity(columns.len());
+                for (i, col) in columns.iter().enumerate() {
+                    let v = row.as_ref(i).cloned();
+                    let json_v = match v {
+                        Some(MyValue::NULL) | None => serde_json::Value::Null,
+                        Some(MyValue::Bytes(b)) => serde_json::Value::String(String::from_utf8_lossy(&b).to_string()),
+                        Some(MyValue::Int(i)) => serde_json::json!(i),
+                        Some(MyValue::UInt(u)) => serde_json::json!(u),
+                        Some(MyValue::Float(f)) => serde_json::json!(f),
+                        Some(MyValue::Double(d)) => serde_json::json!(d),
+                        Some(MyValue::Date(y,m,d,h,mi,s,us)) => serde_json::json!(format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:06}", y,m,d,h,mi,s,us)),
+                        Some(MyValue::Time(is_neg, d, h, m, s, us)) => {
+                            let total_hours: u32 = (h as u32) + d * 24;
+                            serde_json::json!(format!("{}{:02}:{:02}:{:02}.{:06}", if is_neg {"-"} else {""}, total_hours, m, s, us))
+                        }
+                    };
+                    obj.insert(col.clone(), json_v);
+                }
+                rows.push(obj);
+            }
+            Ok(QueryResult { columns, rows, total_rows: None, plan_steps: None, insights: None, plan_tables: None, rows_scanned_estimate: None })
+        }
+        _ => Err("Unsupported driver".into())
+    }
 }
 
 #[tauri::command]
@@ -663,7 +778,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
-        .invoke_handler(tauri::generate_handler![sqlite_open, run_sqlite_query, run_sqlite_query_raw, sqlite_table_summary, sqlite_schema_summary])
+        .invoke_handler(tauri::generate_handler![sqlite_open, run_sqlite_query, run_sqlite_query_raw, sqlite_table_summary, sqlite_schema_summary, run_network_query])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

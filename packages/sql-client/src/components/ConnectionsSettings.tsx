@@ -97,6 +97,49 @@ export default function ConnectionsSettings() {
                   SSL
                   <input className="ml-2" type="checkbox" checked={draft.ssl ?? false} onChange={(e) => setDraft({ ...draft, ssl: e.target.checked })} />
                 </Label>
+                <div className="col-span-2 border-t pt-2 mt-2" />
+                <Label className="flex-row items-center">
+                  SSH Tunnel
+                  <input className="ml-2" type="checkbox" checked={draft.sshEnabled ?? false} onChange={(e) => setDraft({ ...draft, sshEnabled: e.target.checked })} />
+                </Label>
+                {draft.sshEnabled && (
+                  <>
+                    <Label>
+                      SSH Host
+                      <Input value={draft.sshHost ?? ""} onChange={(e) => setDraft({ ...draft, sshHost: e.target.value })} />
+                    </Label>
+                    <Label>
+                      SSH Port
+                      <Input type="number" value={draft.sshPort ?? 22} onChange={(e) => setDraft({ ...draft, sshPort: Number(e.target.value) || undefined })} />
+                    </Label>
+                    <Label>
+                      SSH User
+                      <Input value={draft.sshUser ?? ""} onChange={(e) => setDraft({ ...draft, sshUser: e.target.value })} />
+                    </Label>
+                    <Label>
+                      SSH Password
+                      <Input type="password" value={draft.sshPassword ?? ""} onChange={(e) => setDraft({ ...draft, sshPassword: e.target.value })} />
+                    </Label>
+                    <Label className="col-span-2">
+                      SSH Private Key (path)
+                      <div className="flex gap-2">
+                        <Input value={draft.sshPrivateKey ?? ""} onChange={(e) => setDraft({ ...draft, sshPrivateKey: e.target.value })} />
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={async () => {
+                            const file = await open({ multiple: false, directory: false, filters: [ { name: "Key Files", extensions: ["pem", "key", "ppk"] } ] });
+                            if (typeof file === "string") setDraft({ ...draft, sshPrivateKey: file });
+                          }}
+                        >Browse</Button>
+                      </div>
+                    </Label>
+                    <Label>
+                      SSH Passphrase
+                      <Input type="password" value={draft.sshPassphrase ?? ""} onChange={(e) => setDraft({ ...draft, sshPassphrase: e.target.value })} />
+                    </Label>
+                  </>
+                )}
               </>
             )}
             {draft.driver === "sqlite" && (
