@@ -1,5 +1,4 @@
-FluxQuery (GianSQL)
-
+FluxQuery
 A fast, minimal, and elegant desktop SQL client built with Tauri 2, React, and TypeScript. Designed for focus and speed with a polished monochrome UI.
 
 Features
