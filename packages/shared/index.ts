@@ -13,10 +13,12 @@ export const WEBSOCKET_EVENTS = {
 } as const;
 
 export const LIST_OF_MODELS = [
-    "gpt-4o-mini",
-    "gpt-4o",
-    "gemini-2.0-flash",
-    "claude-3-5-sonnet",
+    "openai/gpt-4o-mini",
+    "openai/gpt-4o-2024-11-20",
+    "google/gemini-2.5-flash",
+    "anthropic/claude-3.5-sonnet", 
+    "mistralai/magistral-medium-2506:thinking",
+    "anthropic/claude-3.7-sonnet:thinking"
 ] as const;
 
 export const WebSocketEvents = {
@@ -50,6 +52,7 @@ export enum EventType {
     ERROR = "error",
     QUERY = "query",
     RESULT = "result",
+    THINKING = "thinking",
 }
 
 export interface WebSocketMessage {

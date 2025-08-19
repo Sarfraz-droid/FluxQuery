@@ -1,11 +1,10 @@
 import { ActionType, EventType, WebSocketEvents, WebSocketTopics, type CacheKeyStoreData, type TABLE_TYPE, type WebSocketMessage, type WebSocketPayload } from "shared";
 import { PineconeService } from "./Pinecone.service";
 import { openRouter } from "./OpenRouter.service";
-import { z } from "zod";
 import { v4 as uuidv4 } from 'uuid';
 import { getQueryPrompt } from "./Prompt.service";
 import { WebSocketController } from "../controller/WebSocketController";
-import { formatTopic } from "../utils";
+import { formatTopic, parseJsonFromText } from "../utils";
 import { CacheModule } from "../module/cache.module";
 
 export class IndexDbService {
@@ -63,11 +62,11 @@ export class IndexDbService {
 
         console.log("prompt: ", prompt);
 
-        const response = await openRouter.performQuery("openai/gpt-4o-mini", prompt, z.object({
-            query: z.array(z.string()),
-        }))
+        const raw = await openRouter.performQuery("openai/gpt-4o-mini", prompt);
+        const obj = parseJsonFromText(raw) as { query?: string[] };
+        const queryArray = Array.isArray(obj?.query) ? obj.query : [];
 
-        console.log("response: ", response);
+        console.log("response: ", obj);
 
         const transactionId = uuidv4();
 
@@ -76,7 +75,7 @@ export class IndexDbService {
             eventType: EventType.QUERY,
             data: {
                 transactionId,
-                query: response.query,
+                query: queryArray,
             }
         }
 
@@ -85,7 +84,7 @@ export class IndexDbService {
         const cacheStoreData: CacheKeyStoreData = {
             transactionId: transactionId.toString(),
             data: {
-                query: response.query,
+                query: queryArray,
             }
         }
 

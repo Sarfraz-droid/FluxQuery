@@ -9,7 +9,8 @@ import { TableRow } from 'shared/table.type';
 export const useAgentMode = () => {
     const [userInput, setUserInput] = useState("");
     const sendMessage = useAppStore((state) => state.sendMessage);
-    const { updateIsRunning, addQuery, isRunning, addMessage, messages, reset } = useAgentModeStore();
+    const { updateIsRunning, addQuery, isRunning, addMessage, messages, reset, resetThinking, appendThinking, setThinkingStartedAt } = useAgentModeStore();
+    const selectedModel = useAgentModeStore((s) => s.selectedModel);
     const { setEditorSql } = useAppStore();
     const active = useAppStore((state) => state.activeConnectionId);
 
@@ -20,6 +21,7 @@ export const useAgentMode = () => {
         });
 
         reset();
+        resetThinking();
 
         console.log("schema: ", schema);
 
@@ -27,7 +29,8 @@ export const useAgentMode = () => {
             event: WebSocketEvents.AGENT,
             data: {
                 prompt: userInput,
-                schema
+                schema,
+                model: selectedModel
             },
             action: ActionType.INITIATE
         }
@@ -36,6 +39,7 @@ export const useAgentMode = () => {
             addMessage(`📝 Request: "${userInput.trim()}"`);
         }
         updateIsRunning(true);
+        setThinkingStartedAt(Date.now());
 
         sendMessage(data);
     }
@@ -50,6 +54,24 @@ export const useAgentMode = () => {
             case EventType.QUERY:
                 handleQuery(data);
                 break;
+            case EventType.INFORMATION: {
+                addMessage(data?.data?.message || "ℹ️ Information received.");
+                updateIsRunning(false);
+                break;
+            }
+            case EventType.THINKING: {
+                const delta: string = data?.data?.delta || "";
+                const done: boolean = Boolean(data?.data?.done);
+                if (delta) {
+                    appendThinking(delta);
+                }
+                if (done) {
+                    const startedAt = useAgentModeStore.getState().thinkingStartedAt || Date.now();
+                    const elapsed = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+                    addMessage(`🧩 Thought for ${elapsed}s`);
+                }
+                break;
+            }
             case EventType.RESULT:
                 handleResult(data);
                 break;

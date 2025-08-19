@@ -29,12 +29,9 @@ body {
   border-color: rgb(31 41 55 / 1);
 }
 
-/* App background: subtle radial gradient in monochrome */
+/* App background: solid dark */
 body, #root {
-  background:
-    radial-gradient(1200px 600px at 100% -10%, rgba(255,255,255,0.04), transparent 60%),
-    radial-gradient(1000px 500px at -10% 110%, rgba(255,255,255,0.03), transparent 60%),
-    #000;
+  background: #000;
 }
 
 /* Resize handles */

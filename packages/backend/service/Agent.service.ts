@@ -8,10 +8,12 @@ import { AgentAdapter } from "../adapters/agent.adapter";
 export class AgentService {
     public deviceId: string;
     public data: WebSocketPayload;
+    public model: string;
 
     constructor(data: WebSocketPayload, deviceId: string) {
         this.deviceId = deviceId;
         this.data = data;
+        this.model = data?.data?.model || "openai/gpt-4o-mini";
     }
 
     public handleAgent(data: WebSocketPayload) {
@@ -37,6 +39,7 @@ export class AgentService {
             state: AGENT.AgentStates.INTENT_PROMPT,
             status: AGENT.AgentStatus.PENDING,
             schema,
+            model: this.model   
         }
 
         const cacheStoreData: CacheKeyStoreData = {

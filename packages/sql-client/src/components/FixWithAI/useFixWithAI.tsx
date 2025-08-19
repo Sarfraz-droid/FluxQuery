@@ -6,6 +6,7 @@ import { useFixWithAIStore } from '../../store/fixWithAI.store'
 export const useFixWithAI = () => {
     const { sendMessage, editorSql } = useAppStore()
     const { updateIsRunning, isRunning } = useFixWithAIStore()
+    const selectedModel = useFixWithAIStore((s) => s.selectedModel)
 
 
     const initiateFixWithAI = (extra?: string) => {
@@ -13,7 +14,8 @@ export const useFixWithAI = () => {
             event: WebSocketEvents.FIX_WITH_AI,
             data: {
                 query: editorSql,
-                extra: extra ?? ''
+                extra: extra ?? '',
+                model: selectedModel
             },
             action: ActionType.INITIATE
         }

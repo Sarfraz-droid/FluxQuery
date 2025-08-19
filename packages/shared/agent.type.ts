@@ -18,6 +18,7 @@ export interface AgentCacheStoreData {
     query_result?: TABLE_TYPE.TableRow[][];
     query_revalidation?: number;
     final_query?: string;
+    model: string;
 }
 
 export enum AgentStatus {

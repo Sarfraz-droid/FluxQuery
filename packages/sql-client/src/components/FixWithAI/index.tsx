@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { Button } from "../ui/button";
+import { Select } from "../ui/select";
+import { LIST_OF_MODELS } from "shared";
+import { useFixWithAIStore } from "../../store/fixWithAI.store";
 import { useFixWithAI } from "./useFixWithAI";
 import { motion } from "framer-motion";
 
@@ -9,6 +12,8 @@ export const FixWithAI = () => {
     const { initiateFixWithAI, isRunning } = useFixWithAI();
     const [isOpen, setIsOpen] = useState(false);
     const [userInput, setUserInput] = useState(defaultInstruction);
+    const selectedModel = useFixWithAIStore((s) => s.selectedModel);
+    const updateSelectedModel = useFixWithAIStore((s) => s.updateSelectedModel);
 
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {
@@ -98,7 +103,18 @@ export const FixWithAI = () => {
                             value={userInput}
                             onChange={(e) => setUserInput(e.target.value)}
                         />
-                        <div className="flex justify-end items-end pt-2 gap-2">
+                        <div className="flex justify-between items-center pt-2 gap-2">
+                            <Select
+                                value={selectedModel}
+                                onChange={(e) => updateSelectedModel(e.target.value)}
+                                className="font-mono bg-gray-950 border-gray-800 text-xs text-gray-200 h-8 py-0 px-2 rounded-sm"
+                            >
+                                {LIST_OF_MODELS.map((m) => (
+                                    <option key={m} value={m} className="bg-gray-900 text-gray-100">
+                                        {m}
+                                    </option>
+                                ))}
+                            </Select>
                             <Button
                                 size="xs"
                                 className="my-0 py-0"

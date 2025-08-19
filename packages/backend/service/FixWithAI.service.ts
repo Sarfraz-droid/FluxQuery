@@ -1,10 +1,9 @@
-import z, { uuidv4 } from "zod";
-import { ActionType, EventType, TABLE_TYPE, WebSocketEvents, WebSocketTopics, type CacheKeyStoreData, type WebSocketMessage, type WebSocketPayload } from "shared";
 import { v4 as uuid } from "uuid";
+import { ActionType, EventType, TABLE_TYPE, WebSocketEvents, WebSocketTopics, type CacheKeyStoreData, type WebSocketMessage, type WebSocketPayload } from "shared";
 import {FIX_WITH_AI} from "shared";
 import { openRouter } from "./OpenRouter.service";
 import { WebSocketController } from "../controller/WebSocketController";
-import { formatTopic } from "../utils";
+import { formatTopic, parseJsonFromText } from "../utils";
 import { CacheModule } from "../module/cache.module";
 import { generateFixWithAiQueryPrompt, getTableFlashCardPrompt } from "./Prompt.service";
 
@@ -116,15 +115,13 @@ export class FixWithAIService {
 
         const finalGeneratePrompt = generateFixWithAiQueryPrompt(query, tables, extra);
 
-        const response = await openRouter.performQuery(
+        const raw = await openRouter.performQuery(
             "openai/gpt-4o-mini",
-            finalGeneratePrompt,
-            z.object({
-                query: z.string(),
-            })
+            finalGeneratePrompt
         );
 
-        console.log("FixWithAIResponse: ", response);
+        const obj = parseJsonFromText(raw) as { query?: string };
+        console.log("FixWithAIResponse: ", obj);
 
         const server = WebSocketController.getInstance().getServer();
 
@@ -136,7 +133,7 @@ export class FixWithAIService {
         const fixWithAIResponse: FIX_WITH_AI.FixWithAIQueryFixResponse = {
             state: FIX_WITH_AI.FixWithAIStates.QUERY_FIX,
             transactionId: uuid(),
-            fixedQuery: response.query as string,
+            fixedQuery: (obj?.query || "") as string,
         }
 
         const message: WebSocketMessage = {
@@ -164,18 +161,13 @@ export class FixWithAIService {
             throw new Error("Prompt is required");
         }
     
-        const response = await openRouter.performQuery(
+        const raw = await openRouter.performQuery(
             "openai/gpt-4o-mini",
-            prompt,
-            z.object({
-                tables: z.array(z.object({
-                    table: z.string(),
-                    show_relationships: z.boolean(),
-                }))
-            })
+            prompt
         )
     
-        console.log("FixWithAIResponse: ", response);
+        const obj = parseJsonFromText(raw) as { tables?: { table: string; show_relationships: boolean }[] };
+        console.log("FixWithAIResponse: ", obj);
     
         const server = WebSocketController.getInstance().getServer();
     
@@ -186,7 +178,7 @@ export class FixWithAIService {
         const fixWithAIResponse: FIX_WITH_AI.FixWithAIIntentQueryResponse = {
             state: FIX_WITH_AI.FixWithAIStates.INTENT_QUERY,
             transactionId: uuid(),
-            tables: response.tables as { table: string; show_relationships: boolean }[]
+            tables: (obj?.tables || []) as { table: string; show_relationships: boolean }[]
         }
 
         const message: WebSocketMessage = {

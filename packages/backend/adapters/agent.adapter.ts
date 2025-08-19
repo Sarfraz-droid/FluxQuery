@@ -1,10 +1,9 @@
 import { AGENT, EventType, WebSocketEvents, WebSocketTopics, type CacheKeyStoreData } from "shared";
 import { CacheModule } from "../module/cache.module";
 import { openRouter } from "../service/OpenRouter.service";
-import z from "zod";
 import { AgentPromptService } from "../prompts/agent.prompt.service";
 import { WebSocketController } from "../controller/WebSocketController";
-import { formatTopic } from "../utils";
+import { formatTopic, parseJsonFromText } from "../utils";
 
 export class AgentAdapter { 
     private static readonly MAX_HELPER_QUERIES = 5;
@@ -18,6 +17,8 @@ export class AgentAdapter {
             .replace(/;\s*$/, "")
             .trim();
     }
+
+    
     public static processAgent(transactionId: string) {
         const cacheStoreData = CacheModule.get(transactionId);
 
@@ -48,17 +49,66 @@ export class AgentAdapter {
 
         console.log("query prompt: ", intentPrompt);
 
-        const response = await openRouter.performQuery(
-            "openai/gpt-4o-mini",
-            intentPrompt,
-            z.object({
-                query: z.string(),
-                is_query_required: z.boolean(),
-                required_tables: z.array(z.string())
-            })
-        );
+        // If model suggests thinking/streaming, stream thoughts to client
+        const isThinkingModel = /(:thinking|thinking)/i.test(data.model);
+        let raw: string;
+        if (isThinkingModel) {
+            raw = await openRouter.performQueryStream(
+                data.model,
+                intentPrompt,
+                (delta) => {
+                    WebSocketController.getInstance().publish(formatTopic(WebSocketTopics.AGENT, data.deviceId), {
+                        event: WebSocketEvents.AGENT,
+                        eventType: EventType.THINKING,
+                        data: { transactionId: data.transactionId, delta }
+                    });
+                }
+            );
+            // Signal end of thinking
+            WebSocketController.getInstance().publish(formatTopic(WebSocketTopics.AGENT, data.deviceId), {
+                event: WebSocketEvents.AGENT,
+                eventType: EventType.THINKING,
+                data: { transactionId: data.transactionId, done: true }
+            });
+        } else {
+            raw = await openRouter.performQuery(
+                data.model,
+                intentPrompt
+            );
+        }
 
-        const { query, is_query_required, required_tables } = response as { query: string, is_query_required: boolean, required_tables: string[] };
+        const parsedIntent = parseJsonFromText(raw) as { query?: string, is_query_required?: boolean, required_tables?: string[] };
+        const query = parsedIntent?.query ?? "";
+        const is_query_required = Boolean(parsedIntent?.is_query_required);
+        const required_tables = Array.isArray(parsedIntent?.required_tables) ? parsedIntent?.required_tables as string[] : [];
+
+        const isNotRelevant = (query || "").trim().toLowerCase() === "not_relevant";
+
+        if (isNotRelevant) {
+            // Mark completed and notify client that the request is not database-related
+            data.required_tables = [];
+            data.query_revalidation = 0;
+            data.status = AGENT.AgentStatus.COMPLETED;
+            data.state = AGENT.AgentStates.QUERY_RESULT;
+
+            const cacheStoreData: CacheKeyStoreData = {
+                transactionId: data.transactionId,
+                data: data
+            }
+
+            CacheModule.set(data.transactionId, JSON.stringify(cacheStoreData));
+
+            WebSocketController.getInstance().publish(formatTopic(WebSocketTopics.AGENT, data.deviceId), {
+                event: WebSocketEvents.AGENT,
+                eventType: EventType.INFORMATION,
+                data: {
+                    transactionId: data.transactionId,
+                    message: "This request doesn't appear related to the database. Please ask a database-specific question."
+                }
+            });
+
+            return;
+        }
 
         const normalizedIncoming = this.normalizeQuery(query);
         const existingQueries = data.query || [];
@@ -113,15 +163,58 @@ export class AgentAdapter {
 
         console.log("query execution prompt: ", queryExecutionPrompt);
 
-        const response = await openRouter.performQuery(
-            "openai/gpt-4o-mini",
-            queryExecutionPrompt,
-            z.object({
-                query: z.string()
-            })
-        );
+        const isThinkingModel = /(:thinking|thinking)/i.test(data.model);
+        let raw: string;
+        if (isThinkingModel) {
+            raw = await openRouter.performQueryStream(
+                data.model,
+                queryExecutionPrompt,
+                (delta) => {
+                    WebSocketController.getInstance().publish(formatTopic(WebSocketTopics.AGENT, data.deviceId), {
+                        event: WebSocketEvents.AGENT,
+                        eventType: EventType.THINKING,
+                        data: { transactionId: data.transactionId, delta }
+                    });
+                }
+            );
+            WebSocketController.getInstance().publish(formatTopic(WebSocketTopics.AGENT, data.deviceId), {
+                event: WebSocketEvents.AGENT,
+                eventType: EventType.THINKING,
+                data: { transactionId: data.transactionId, done: true }
+            });
+        } else {
+            raw = await openRouter.performQuery(
+                data.model,
+                queryExecutionPrompt
+            );
+        }
         
-        const { query } = response as { query: string };
+        const parsed = parseJsonFromText(raw) as { query?: string };
+        const query = parsed?.query ?? "";
+
+        const isNotRelevant = (query || "").trim().toLowerCase() === "not_relevant";
+
+        if (isNotRelevant) {
+            data.status = AGENT.AgentStatus.COMPLETED;
+            data.state = AGENT.AgentStates.QUERY_RESULT;
+
+            const cacheStoreData: CacheKeyStoreData = {
+                transactionId: data.transactionId,
+                data
+            }
+
+            CacheModule.set(data.transactionId, JSON.stringify(cacheStoreData));
+
+            WebSocketController.getInstance().publish(formatTopic(WebSocketTopics.AGENT, data.deviceId), {
+                event: WebSocketEvents.AGENT,
+                eventType: EventType.INFORMATION,
+                data: {
+                    transactionId: data.transactionId,
+                    message: "This request doesn't appear related to the database. Please ask a database-specific question."
+                }
+            });
+            return;
+        }
 
         data.final_query = query;
         data.state = AGENT.AgentStates.QUERY_RESULT;
